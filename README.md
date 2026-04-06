@@ -1,38 +1,71 @@
-# mateo2314_mcp_server - Globalny serwer MCP z architekturą modułową
+# mateo2314_mcp_server — modularny serwer MCP
 
-Globalny serwer MCP (Model Context Protocol) z separacją warstwy transportu i modularyzacją narzędzi per projekt.
+Globalny serwer [Model Context Protocol](https://modelcontextprotocol.io/) z rozdzieleniem rdzenia, transportu i modułów narzędzi per domena.
 
 ## Architektura
 
-- **Core** - Rdzeń serwera niezależny od transportu i modułów
-- **Transports** - Wymienne adaptery (stdio dla Cursor IDE, HTTP dla produkcji)
-- **Modules** - Niezależne moduły projektów z własnym namespace
+- **Core** (`src/core/`) — tworzenie instancji `McpServer`, typy wspólne dla modułów, `ToolRegistry` ładujący moduły z konfiguracji.
+- **Transports** (`src/transports/`) — adaptery MCP. Obecnie: **stdio** (Cursor i inne klienty lokalne).
+- **Modules** (`src/modules/<nazwa>/`) — każdy moduł eksportuje `register(server, options)` i rejestruje narzędzia pod własnym namespace z env / `config/modules.config.ts`.
+- **Config** (`config/modules.config.ts`) — lista modułów, flagi `ENABLE_MODULE_*`, namespace i opcje (np. `contentRoot` dla portfolio).
 
-## MVP: Moduł Portfolio
+Przepływ: `src/index.ts` → `createMcpServer()` → `ToolRegistry.loadModules()` → `startStdioTransport(server)`.
 
-Pierwsza implementacja zawiera tylko moduł `portfolio` z narzędziami do odczytu treści portfolio z plików `.md`.
+## Moduły
 
-### Struktura projektu
+### Portfolio
+
+Treść z plików Markdown i `manifest.json` w katalogu content (read-only, ścieżki przez `safeJoin` z ochroną przed path traversal).
+
+**Lib:** `corpus.ts`, `paths.ts`, `frontmatter.ts`, `search.ts`, `filterHelpers.ts`, `toolResponse.ts`, `validSections.ts`, `toolManifestData.ts`.
+
+**Narzędzia** (prefix domyślny `portfolio_`, konfigurowalny przez `PORTFOLIO_NAMESPACE`):
+
+| Narzędzie | Opis |
+|-----------|------|
+| `{ns}_get_profile` | Profil publiczny |
+| `{ns}_get_about` | Sekcja „O mnie” |
+| `{ns}_get_manifest` | `manifest.json` (sekcje, metadane MVP) |
+| `{ns}_search` | Wyszukiwanie po korpusie |
+| `{ns}_projects_query`, `{ns}_projects_list`, `{ns}_projects_get`, `{ns}_projects_tags` | Projekty |
+| `{ns}_skills_query`, `{ns}_skills_list`, `{ns}_skills_get`, `{ns}_skills_tags`, `{ns}_skills_categories` | Umiejętności |
+| `{ns}_experience_query`, `{ns}_experience_list`, `{ns}_experience_get`, `{ns}_experience_tags` | Doświadczenie |
+| `{ns}_courses_query`, `{ns}_courses_list`, `{ns}_courses_get`, `{ns}_courses_tags`, `{ns}_courses_categories`, `{ns}_courses_platforms` | Kursy |
+
+`{ns}` = wartość namespace (np. `portfolio`).
+
+### test-tools
+
+Przykładowy moduł demonstracyjny (`zod` + `server.tool`): `{ns}_get_user_data`, `{ns}_get_products`. Domyślny namespace: `test` (`TEST_TOOLS_NAMESPACE`). W środowisku produkcyjnym zwykle wyłączasz: `ENABLE_MODULE_TEST_TOOLS=false`.
+
+Moduł jest **włączony domyślnie** (jak portfolio), dopóki nie ustawisz `ENABLE_MODULE_*=false`.
+
+## Struktura repozytorium
 
 ```
 mateo2314_mcp_server/
 ├── config/
-│   └── modules.config.ts     # Konfiguracja modułów
+│   └── modules.config.ts          # Moduły, namespace, contentRoot, corpusVersion
+├── scripts/
+│   └── copy-portfolio-content.mjs # Po tsc: kopiuje content → dist/.../portfolio/content
 ├── src/
-│   ├── index.ts              # Entry point
-│   ├── core/                 # Rdzeń serwera
+│   ├── index.ts                   # Entry: server → registry → stdio
+│   ├── core/
 │   │   ├── server.ts
 │   │   ├── toolRegistry.ts
 │   │   └── types.ts
-│   ├── transports/           # Warstwa transportu
+│   ├── transports/
 │   │   └── stdio.ts
 │   └── modules/
-│       └── portfolio/        # Moduł portfolio (MVP)
+│       ├── portfolio/
+│       │   ├── index.ts           # register*: profile, about, manifest, search, projects, skills, experience, courses
+│       │   ├── content/           # .md, manifest.json (+ kopia w dist po buildzie)
+│       │   ├── lib/
+│       │   └── tools/
+│       └── test-tools/
 │           ├── index.ts
-│           ├── content/      # Pliki .md (MVP)
-│           ├── lib/          # Helpery
-│           └── tools/        # Narzędzia MCP
-└── dist/                     # Skompilowane pliki
+│           └── tools/
+└── dist/                          # `tsc` → m.in. dist/src/index.js
 ```
 
 ## Instalacja
@@ -43,15 +76,19 @@ npm install
 
 ## Konfiguracja
 
-Skopiuj `.env.example` do `.env` i dostosuj:
-
 ```bash
 cp .env.example .env
 ```
 
+Ważne zmienne (szczegóły w `.env.example`):
+
+- **Portfolio:** `ENABLE_MODULE_PORTFOLIO`, `PORTFOLIO_NAMESPACE`, `PORTFOLIO_CONTENT_ROOT`, `PORTFOLIO_CORPUS_VERSION`
+- **test-tools:** `ENABLE_MODULE_TEST_TOOLS`, `TEST_TOOLS_NAMESPACE`
+- **Transport (plan):** `MCP_TRANSPORT`, `MCP_PORT`, `MCP_INTERNAL_TOKEN` — w kodzie nadal tylko stdio; HTTP opisany w `MCP.md`
+
 ## Uruchomienie
 
-### Rozwój (z watch mode)
+### Rozwój (watch)
 
 ```bash
 npm run dev
@@ -64,11 +101,12 @@ npm run build
 npm start
 ```
 
+`build` uruchamia `tsc` oraz `scripts/copy-portfolio-content.mjs`, żeby przy `npm start` (`node dist/src/index.js`) katalog `content` modułu portfolio był dostępny obok skompilowanych plików (domyślny `PORTFOLIO_CONTENT_ROOT` względem `lib` w `dist`).
+
 ## Integracja z Cursor IDE
 
-1. Skompiluj projekt: `npm run build`
-
-2. Dodaj konfigurację do `cline_mcp_settings.json`:
+1. Zbuduj projekt: `npm run build`
+2. W konfiguracji MCP (np. plik MCP w Cursor / ustawienia globalne) ustaw serwer uruchamiany przez Node ze ścieżką do **skompilowanego** entry point:
 
 ```json
 {
@@ -76,147 +114,92 @@ npm start
     "mateo2314_mcp_server": {
       "command": "node",
       "args": [
-        "C:\\Users\\matej\\Desktop\\projekt JS\\custom_mcp_server\\dist\\index.js"
+        "C:\\Users\\matej\\Desktop\\projekt JS\\custom_mcp_server\\dist\\src\\index.js"
       ],
       "env": {
         "ENABLE_MODULE_PORTFOLIO": "true",
+        "ENABLE_MODULE_TEST_TOOLS": "true",
         "PORTFOLIO_NAMESPACE": "portfolio",
-        "PORTFOLIO_CONTENT_ROOT": "C:\\Users\\matej\\Desktop\\projekt JS\\custom_mcp_server\\src\\modules\\portfolio\\content"
+        "PORTFOLIO_CONTENT_ROOT": "C:\\Users\\matej\\Desktop\\projekt JS\\custom_mcp_server\\dist\\src\\modules\\portfolio\\content"
       }
     }
   }
 }
 ```
 
-3. Zrestartuj Cursor IDE
+Dostosuj ścieżki do swojego dysku. Dla samego portfolio możesz wskazać `src\\...\\content` przy `tsx`/dev; przy `npm start` wygodniej jest katalog w `dist` po skrypcie kopiującym.
 
-4. Sprawdź panel MCP - powinien pokazać serwer "mateo2314_mcp_server" jako Connected
-
-## Narzędzia (MVP - moduł portfolio)
-
-Wszystkie narzędzia mają prefix `portfolio_`:
-
-- `portfolio_get_profile` - Publiczny profil
-- `portfolio_get_about` - Sekcja "O mnie"
-- `portfolio_list_projects` - Lista projektów
-- `portfolio_get_project` - Szczegóły projektu
-- `portfolio_list_skills` - Lista umiejętności
-- `portfolio_get_skill` - Szczegóły umiejętności
-- `portfolio_search` - Wyszukiwanie pełnotekstowe
-- ... i inne (łącznie ~20 narzędzi)
+3. Zrestartuj Cursor i sprawdź panel MCP.
 
 ## Testowanie w Cursor
 
 ```
-Czy możesz sprawdzić jakie narzędzia MCP są dostępne?
+Jakie narzędzia MCP są dostępne?
 ```
 
 ```
-Użyj narzędzia portfolio_get_profile i pokaż mi wynik
+Użyj portfolio_get_profile i pokaż wynik
 ```
 
 ```
-Wyszukaj wszystkie treści związane z "TypeScript" używając portfolio_search
+Wyszukaj "TypeScript" przez portfolio_search
 ```
 
-## Dodawanie treści (MVP)
+## Treść portfolio
 
-Dodaj pliki `.md` do `src/modules/portfolio/content/`:
+Pliki w `src/modules/portfolio/content/` (po buildzie także pod `dist/.../content/`). Struktura zależy od Twojego korpusu; obowiązuje m.in. `manifest.json` zgodny z narzędziem `get_manifest`.
 
-```
-content/
-├── profile.md
-├── about/body.md
-├── projects/
-│   ├── project-1.md
-│   └── project-2.md
-└── skills/
-    ├── typescript.md
-    └── react.md
-```
-
-Format pliku z front matter:
+Przykład front matter w `.md`:
 
 ```markdown
 ---
-project_name: Mój Projekt
+project_name: Mój projekt
 project_category: Web Development
 tech_stack: Next.js, TypeScript
 ---
 
-Opis projektu...
+Opis...
 ```
 
-## Migracja do produkcji
+## Migracja / rozszerzenia
 
-### Zmiana źródła danych: pliki → baza danych
+### Baza zamiast plików
 
-1. Dodaj Prisma:
-```bash
-npm install @prisma/client
-npm install -D prisma
-```
+Zachowaj nazwy narzędzi i kontrakty; podmień implementację w warstwie lib (np. `corpus.ts`) na odczyt z DB. Zmienne typu `PORTFOLIO_DB_URL` są przygotowane w `.env.example` jako szkic.
 
-2. Skonfiguruj połączenie z bazą (read-only user):
-```env
-PORTFOLIO_DB_URL=postgresql://mcp_readonly:password@localhost:5432/portfolio
-```
+### Transport HTTP
 
-3. Zamień implementację w `src/modules/portfolio/lib/corpus.ts`:
-   - MVP: `fs.readFile()`, `fs.readdir()`
-   - Produkcja: Prisma queries
+Nadal do zaimplementowania zgodnie z `MCP.md` (Express itd.); `src/index.ts` na razie tylko stdio.
 
-4. **Nazwy narzędzi i kontrakt API pozostają bez zmian!**
+## Dodawanie modułu
 
-### Dodanie transportu HTTP
-
-1. Dodaj Express:
-```bash
-npm install express
-```
-
-2. Utwórz `src/transports/http.ts` (zgodnie z dokumentacją MCP.md)
-
-3. Zmień transport w `.env`:
-```env
-MCP_TRANSPORT=http
-MCP_PORT=3333
-```
-
-## Dodawanie nowych modułów
-
-1. Utwórz katalog `src/modules/nazwa-modulu/`
-2. Zaimplementuj `index.ts` z funkcją `register()`
-3. Dodaj konfigurację do `config/modules.config.ts`
-4. Włącz moduł w `.env`:
-```env
-ENABLE_MODULE_NAZWA=true
-NAZWA_NAMESPACE=nazwa
-```
+1. Katalog `src/modules/<nazwa>/` z `index.ts` i `export async function register(server, options)`.
+2. Wpis w `config/modules.config.ts` (nazwa = segment ścieżki importu `../modules/${name}/index.js`).
+3. Zmienne `ENABLE_MODULE_<NAZWA>` / namespace w `.env` według konwencji projektu.
 
 ## Dokumentacja
 
-- [MCP_MVP.md](./MCP_MVP.md) - Plan implementacji MVP
-- [MCP.md](./MCP.md) - Architektura globalnego serwera
-- [Model Context Protocol](https://modelcontextprotocol.io/docs/getting-started/intro) - Oficjalna dokumentacja
+- [MCP_MVP.md](./MCP_MVP.md) — plan MVP
+- [MCP.md](./MCP.md) — architektura globalnego serwera i transporty
+- [Model Context Protocol](https://modelcontextprotocol.io/docs/getting-started/intro)
 
 ## Troubleshooting
 
-### Serwer nie łączy się z Cursor
+### Brak połączenia z klientem MCP
 
-1. Sprawdź logi w Output → MCP
-2. Zweryfikuj ścieżki w konfiguracji (podwójne backslashe `\\`)
-3. Upewnij się że projekt jest skompilowany: `npm run build`
+- Logi: Output → MCP
+- Ścieżki w Windows: poprawne escapowanie `\\` w JSON
+- Czy istnieje `dist/src/index.js` po `npm run build`
 
-### Brak narzędzi w panelu MCP
+### Brak narzędzi / pusty moduł
 
-1. Sprawdź logi: powinno być `Loaded 1 modules: portfolio`
-2. Zweryfikuj czy `ENABLE_MODULE_PORTFOLIO=true`
-3. Sprawdź czy pliki `.md` istnieją w `content/`
+- W logach powinna być linia w stylu: `Loaded N modules: portfolio, test-tools`
+- `ENABLE_MODULE_PORTFOLIO=false` wyłącza portfolio; to samo dla `test-tools`
+- Portfolio: czy `content` istnieje (src lub dist + skrypt kopiujący)
 
 ### Path traversal detected
 
-To oczekiwane zachowanie dla nieprawidłowych ścieżek. Sprawdź czy `PORTFOLIO_CONTENT_ROOT` wskazuje na istniejący katalog.
+Zamierzone dla ścieżek wychodzących poza `PORTFOLIO_CONTENT_ROOT`. Sprawdź `PORTFOLIO_CONTENT_ROOT` i argumenty narzędzi.
 
 ## Licencja
 
