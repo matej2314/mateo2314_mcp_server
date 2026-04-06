@@ -1,16 +1,4 @@
-interface Config {
-    contentRoot: string,
-    corpusVersion: string,
-}
-
-export interface ModuleConfig {
-    name: string;
-    enabled: boolean;
-    namespace?: string;
-    config?: Config;
-}
-
-export const modulesConfig: ModuleConfig[] = [
+export const modulesConfig = [
     {
         name: 'portfolio',
         enabled: process.env.ENABLE_MODULE_PORTFOLIO !== 'false',
@@ -25,4 +13,4 @@ export const modulesConfig: ModuleConfig[] = [
         enabled: process.env.ENABLE_MODULE_TEST_TOOLS !== 'false',
         namespace: process.env.TEST_TOOLS_NAMESPACE || 'test',
     }
-]
+];

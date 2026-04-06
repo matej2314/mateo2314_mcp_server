@@ -1,0 +1,39 @@
+{
+    "version": "0.1.0",
+    "lastUpdated": "2026-04-04T12:00:00Z",
+    "sections": [
+        {
+            "name": "profile",
+            "filterableFields": []
+        },
+        {
+            "name": "about",
+            "filterableFields": []
+        },
+        {
+            "name": "projects",
+            "filterableFields": ["category", "tech", "status", "year", "role"],
+            "categories": ["web_development", "seo", "ai", "security"],
+            "tags": ["seo", "mcp", "ai", "web", "backend", "frontend", "fullstack", "react", "nextjs", "express", "docker", "mysql"]
+        },
+        {
+            "name": "skills",
+            "filterableFields": ["category", "tech", "level", "type"],
+            "categories": ["web_development", "devops", "security", "database", "ai", "frontend", "backend", "styling", "css", "docker", "security", "websec", "tools", "libraries"],
+            "tags": ["css", "javascript", "typescript", "backend", "frontend", "fullstack", "styling", "css", "react", "nextjs", "express", "docker", "database", "security", "tools", "libraries"],
+            "levels": ["beginner", "intermediate", "advanced", "expert"],
+            "types": ["language", "framework", "library", "tool", "platform"]
+        },
+        {
+            "name": "experience",
+            "filterableFields": ["company", "role", "tech", "startYear", "endYear"],
+            "tags": ["react", "nodejs", "wordpress"]
+        },
+        {
+            "name": "courses",
+            "filterableFields": ["category", "platform", "year", "status", "tech"],
+            "categories": ["web_development", "devops", "security", "database", "ai", "frontend", "backend"],
+            "platforms": ["udemy", "youtube", "private platform", "other"]
+        }
+    ]
+}
