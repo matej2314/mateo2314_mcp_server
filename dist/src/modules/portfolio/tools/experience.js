@@ -1,15 +1,11 @@
 import { z } from 'zod';
-import manifest from '../content/manifest.json';
+import { toolManifestData } from '../lib/toolManifestData.js';
 import { readAllFiles, readFile } from '../lib/corpus.js';
 import { matchesExperience, toStrList, uniqueSorted } from '../lib/filterHelpers.js';
 import { toolError, toolJson } from '../lib/toolResponse.js';
-function experienceManifestTags() {
-    const sec = manifest.sections.find((s) => s.name === 'experience');
-    const tags = sec && 'tags' in sec && Array.isArray(sec.tags) ? sec.tags : [];
-    return tags;
-}
 export function registerExperienceTools(server, options) {
     const ns = options.namespace;
+    const manifest = toolManifestData('experience');
     server.registerTool(`${ns}_experience_query`, {
         description: `[${ns}] Doświadczenie z filtrami: firma, rola, tech, rok startu/końca`,
         inputSchema: {
@@ -80,7 +76,7 @@ export function registerExperienceTools(server, options) {
             for (const { data } of all) {
                 fromFiles.push(...toStrList(data.tech));
             }
-            const tags = uniqueSorted([...experienceManifestTags(), ...fromFiles]);
+            const tags = uniqueSorted([...manifest.tags, ...fromFiles]);
             return toolJson({ tags });
         }
         catch (error) {

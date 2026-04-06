@@ -5,11 +5,11 @@
   "license": "ISC",
   "author": "",
   "type": "module",
-  "main": "dist/index.js",
+  "main": "dist/src/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/copy-portfolio-content.mjs",
     "dev": "tsx watch src/index.ts",
-    "start": "node dist/index.js",
+    "start": "node dist/src/index.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

@@ -1,8 +1,7 @@
 import { z } from 'zod';
-import manifest from '../content/manifest.json';
+import { validSections } from '../lib/validSections.js';
 import { searchCorpus } from '../lib/search.js';
 import { toolError, toolJson } from '../lib/toolResponse.js';
-const validSections = new Set(manifest.sections.map((s) => s.name));
 export function registerSearchTools(server, options) {
     const toolName = `${options.namespace}_search`;
     server.registerTool(toolName, {

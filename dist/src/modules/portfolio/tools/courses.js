@@ -1,19 +1,11 @@
 import { z } from 'zod';
-import manifest from '../content/manifest.json';
+import { toolManifestData } from '../lib/toolManifestData.js';
 import { readAllFiles, readFile } from '../lib/corpus.js';
 import { matchesCourse, toStrList, uniqueSorted } from '../lib/filterHelpers.js';
 import { toolError, toolJson } from '../lib/toolResponse.js';
-function coursesManifest() {
-    const sec = manifest.sections.find((s) => s.name === 'courses');
-    return {
-        tags: sec?.tags ?? [],
-        categories: sec?.categories ?? [],
-        platforms: sec?.platforms ?? [],
-    };
-}
 export function registerCoursesTools(server, options) {
     const ns = options.namespace;
-    const m = coursesManifest();
+    const m = toolManifestData('courses');
     server.registerTool(`${ns}_courses_query`, {
         description: `[${ns}] Kursy z filtrami: category, platform, year, status, tags`,
         inputSchema: {

@@ -1,4 +1,4 @@
-import manifest from '../content/manifest.json';
+import manifest from '../content/manifest.json' with { type: 'json' };
 
 export const toolManifestData = (sectionName: string) => {
     const sec = manifest.sections.find((s) => s.name === sectionName) as

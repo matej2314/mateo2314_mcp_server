@@ -1,17 +1,11 @@
 import { z } from 'zod';
-import manifest from '../content/manifest.json';
+import { toolManifestData } from '../lib/toolManifestData.js';
 import { readAllFiles, readFile } from '../lib/corpus.js';
 import { matchesSkill, toStrList, uniqueSorted } from '../lib/filterHelpers.js';
 import { toolError, toolJson } from '../lib/toolResponse.js';
-function skillsManifest() {
-    const sec = manifest.sections.find((s) => s.name === 'skills');
-    return {
-        tags: sec?.tags ?? [],
-        categories: sec?.categories ?? [],
-    };
-}
 export function registerSkillsTools(server, options) {
     const ns = options.namespace;
+    const manifest = toolManifestData('skills');
     server.registerTool(`${ns}_skills_query`, {
         description: `[${ns}] Umiejętności z filtrami: tags, category, level, type`,
         inputSchema: {
@@ -82,7 +76,7 @@ export function registerSkillsTools(server, options) {
             for (const { data } of all) {
                 fromFiles.push(...toStrList(data.tags));
             }
-            const tags = uniqueSorted([...skillsManifest().tags, ...fromFiles]);
+            const tags = uniqueSorted([...manifest.tags, ...fromFiles]);
             return toolJson({ tags });
         }
         catch (error) {
@@ -96,7 +90,7 @@ export function registerSkillsTools(server, options) {
         try {
             const all = await readAllFiles('skills');
             const fromFiles = all.map((x) => String(x.data.category ?? '')).filter(Boolean);
-            const categories = uniqueSorted([...skillsManifest().categories, ...fromFiles]);
+            const categories = uniqueSorted([...manifest.categories, ...fromFiles]);
             return toolJson({ categories });
         }
         catch (error) {
