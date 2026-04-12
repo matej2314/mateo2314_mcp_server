@@ -1,5 +1,5 @@
 # Multi-stage build for optimal image size
-FROM node:22.22.2 AS builder
+FROM node:22.22.2-alpine AS builder
 
 WORKDIR /app
 
@@ -16,7 +16,7 @@ COPY . .
 RUN npm run build
 
 # Production stage
-FROM node:22.22.2
+FROM node:22.22.2-alpine
 
 WORKDIR /app
 
