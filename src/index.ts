@@ -33,6 +33,7 @@ async function main() {
     await startHttpTransport(buildMcpServer, {
         port: parseInt(process.env.MCP_PORT ?? '3333', 10),
         internalToken: process.env.MCP_INTERNAL_TOKEN,
+        host: process.env.MCP_HOST ?? '127.0.0.1'
     });
 
     console.error('[Server] Connected via HTTP');
