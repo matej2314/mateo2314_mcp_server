@@ -1,7 +1,9 @@
+import 'dotenv/config';
+
 import { createMcpServer } from './core/server.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ToolRegistry } from './core/toolRegistry.js';
-import { startStdioTransport } from './transports/stdio.js';
+// import { startStdioTransport } from './transports/stdio.js';
 import { startHttpTransport } from './transports/http.js';
 
 async function createServerWithModules(): Promise<{
@@ -30,10 +32,12 @@ async function main() {
 
     // Stdio (jeden proces, jedna sesja): const { server } = await createServerWithModules(); await startStdioTransport(server);
 
+    const internalToken = process.env.MCP_INTERNAL_TOKEN?.trim() ?? '';
     await startHttpTransport(buildMcpServer, {
         port: parseInt(process.env.MCP_PORT ?? '3333', 10),
-        internalToken: process.env.MCP_INTERNAL_TOKEN,
-        host: process.env.MCP_HOST ?? '127.0.0.1'
+        internalToken,
+        host: process.env.MCP_HOST ?? '127.0.0.1',
+        allowedHosts: ['localhost', '127.0.0.1', 'mateo2314_mcp_server']
     });
 
     console.error('[Server] Connected via HTTP');
