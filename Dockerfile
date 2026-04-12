@@ -33,10 +33,22 @@ COPY --from=builder /app/dist ./dist
 # Copy any additional runtime files if needed
 COPY --from=builder /app/scripts ./scripts
 
-# Create non-root user for security
-RUN addgroup -g 1001 -S nodejs && \
-    adduser -S nodejs -u 1001 && \
-    chown -R nodejs:nodejs /app
+# Admin for debugging: full root via sudo without password (wheel).
+#   docker exec -u admin -it mateo2314_mcp_server sh
+#   sudo -s   # root shell
+# Password login (su, etc.): default "debug" — override at build:
+#   docker build --build-arg ADMIN_PASSWORD='twoje_haslo' .
+ARG ADMIN_PASSWORD=debug
+RUN apk add --no-cache sudo shadow \
+    && echo '%wheel ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/wheel \
+    && chmod 440 /etc/sudoers.d/wheel \
+    && addgroup -g 1001 -S nodejs \
+    && adduser -S nodejs -u 1001 \
+    && adduser -D -u 2000 admin \
+    && adduser admin wheel \
+    && adduser admin nodejs \
+    && echo "admin:${ADMIN_PASSWORD}" | chpasswd \
+    && chown -R nodejs:nodejs /app
 
 USER nodejs
 
