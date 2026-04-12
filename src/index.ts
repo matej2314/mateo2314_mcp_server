@@ -37,7 +37,6 @@ async function main() {
         port: parseInt(process.env.MCP_PORT ?? '3333', 10),
         internalToken,
         host: process.env.MCP_HOST ?? '127.0.0.1',
-        allowedHosts: ['localhost', '127.0.0.1', 'mateo2314_mcp_server']
     });
 
     console.error('[Server] Connected via HTTP');
