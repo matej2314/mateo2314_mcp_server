@@ -33,7 +33,7 @@ export async function startHttpTransport(
     options: StartHttpTransportOptions
 ): Promise<void> {
     const mountPath = options.path ?? '/mcp';
-    const host = options.host ?? '127.0.0.1';
+    const host = options.host ?? '0.0.0.0';
     const sessions: Record<string, SessionRecord> = {};
 
     const app = createMcpExpressApp({
