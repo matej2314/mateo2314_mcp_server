@@ -1,0 +1,21 @@
+version: "3.8"
+services:
+  mateo2314_mcp_server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: mateo2314_mcp_server
+    networks:
+      - main_network
+    ports:
+      - "127.0.0.1:8090:8090"
+    volumes:
+      - ./root/main/mcp_server/.env:/app/.env
+    environment:
+      - NODE_ENV=production
+    restart: unless-stopped
+
+networks:
+  main_network:
+    external: true
+    name: main_network
