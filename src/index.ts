@@ -19,6 +19,7 @@ async function createServerWithModules(): Promise<{
 /** Nowa instancja + moduły — jedna para na sesję MCP (Streamable HTTP). */
 async function buildMcpServer(): Promise<McpServer> {
 	const { server } = await createServerWithModules();
+
 	return server;
 }
 
