@@ -33,17 +33,17 @@ COPY --from=builder /app/dist ./dist
 # Copy any additional runtime files if needed
 COPY --from=builder /app/scripts ./scripts
 
-# ARG ADMIN_PASSWORD=debug
-# RUN apk add --no-cache sudo shadow \
-#     && echo '%wheel ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/wheel \
-#     && chmod 440 /etc/sudoers.d/wheel \
-#     && addgroup -g 1001 -S nodejs \
-#     && adduser -S nodejs -u 1001 \
-#     && adduser -D -u 2000 admin \
-#     && adduser admin wheel \
-#     && adduser admin nodejs \
-#     && echo "admin:${ADMIN_PASSWORD}" | chpasswd \
-#     && chown -R nodejs:nodejs /app
+ARG ADMIN_PASSWORD=debug
+RUN apk add --no-cache sudo shadow \
+    && echo '%wheel ALL=(ALL) NOPASSWD: ALL' > /etc/sudoers.d/wheel \
+    && chmod 440 /etc/sudoers.d/wheel \
+    && addgroup -g 1001 -S nodejs \
+    && adduser -S nodejs -u 1001 \
+    && adduser -D -u 2000 admin \
+    && adduser admin wheel \
+    && adduser admin nodejs \
+    && echo "admin:${ADMIN_PASSWORD}" | chpasswd \
+    && chown -R nodejs:nodejs /app
 
 USER nodejs
 
