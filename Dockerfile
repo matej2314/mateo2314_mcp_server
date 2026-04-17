@@ -3,16 +3,16 @@ FROM node:25.9.0-alpine AS builder
 
 WORKDIR /app
 
-# Copy dependency files first (better layer caching)
+
 COPY package*.json ./
 
-# Install all dependencies (including devDependencies for build)
+
 RUN npm install
 
-# Copy source code
+
 COPY . .
 
-# Build TypeScript application
+
 RUN npm run build
 
 # Production stage
