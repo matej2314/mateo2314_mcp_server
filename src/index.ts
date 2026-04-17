@@ -1,4 +1,5 @@
-import 'dotenv/config';
+import dotenv from 'dotenv';
+dotenv.config({ path: '../.env' });
 
 import { createMcpServer } from './core/server.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
