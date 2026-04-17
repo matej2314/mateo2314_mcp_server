@@ -3,7 +3,6 @@ import 'dotenv/config';
 import { createMcpServer } from './core/server.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { ToolRegistry } from './core/toolRegistry.js';
-// import { startStdioTransport } from './transports/stdio.js';
 import { startHttpTransport } from './transports/http.js';
 
 async function createServerWithModules(): Promise<{
@@ -16,7 +15,6 @@ async function createServerWithModules(): Promise<{
 	return { server, loadedModules: registry.getLoadedModules() };
 }
 
-/** Nowa instancja + moduły — jedna para na sesję MCP (Streamable HTTP). */
 async function buildMcpServer(): Promise<McpServer> {
 	const { server } = await createServerWithModules();
 
@@ -30,8 +28,6 @@ async function main() {
 	const { server: probe, loadedModules } = await createServerWithModules();
 	console.error(`[Server] Loaded ${loadedModules.length} modules: ${loadedModules.join(', ')}`);
 	await probe.close();
-
-	// Stdio (jeden proces, jedna sesja): const { server } = await createServerWithModules(); await startStdioTransport(server);
 
 	await startHttpTransport(buildMcpServer, {
 		port: parseInt(process.env.MCP_PORT ?? '3333', 10),
