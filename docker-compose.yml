@@ -9,8 +9,8 @@ services:
       - main_network
     ports:
       - "127.0.0.1:8090:8090"
-    volumes:
-      - /root/main/mcp_server/.env:/app/.env
+    # volumes:
+      # - /root/main/mcp_server/.env:/app/.env
     environment:
       - NODE_ENV=production
       - MCP_HOST=0.0.0.0
