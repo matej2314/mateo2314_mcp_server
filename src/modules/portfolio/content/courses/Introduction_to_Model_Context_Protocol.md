@@ -14,7 +14,7 @@ rating: 5
 
 ## Opis kursu
 
-Przeszedłem [Introduction to Model Context Protocol](https://anthropic.skilljar.com/introduction-to-model-context-protocol) — wprowadzenie do MCP od Anthropic, które pokazuje, jak budować zarówno serwery jak i klienty MCP od podstaw, używając Python SDK. Kurs skupia się na trzech fundamentalnych prymitywach MCP: **tools** (narzędzia), **resources** (zasoby) i **prompts** (prompty) — i wyjaśnia, jak każdy z nich integruje się z Claude AI.
+Przeszedłem [Introduction to Model Context Protocol](https://anthropic.skilljar.com/introduction-to-model-context-protocol) — wprowadzenie do MCP od Anthropic, które pokazuje, jak budować zarówno serwery jak i klienty MCP od podstaw. Kurs skupia się na trzech fundamentalnych prymitywach MCP: **tools** (narzędzia), **resources** (zasoby) i **prompts** (prompty) — i wyjaśnia, jak każdy z nich integruje się z Claude AI.
 
 To nie jest tylko teoria o protokole komunikacji. Kurs prowadzi przez praktyczne implementacje: od definiowania narzędzi przez dekoratory (zamiast ręcznego pisania JSON schemas), przez zarządzanie dokumentami, testowanie w Server Inspectorze, aż po budowanie klientów z obsługą różnych typów MIME i wstrzykiwanie kontekstu do konwersacji AI. Dużo uwagi poświęcono architekturze MCP i temu, jak przesuwa ona ciężar definicji i wykonywania narzędzi z głównego serwera do wyspecjalizowanych serwerów MCP.
 
