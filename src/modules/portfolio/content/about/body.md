@@ -8,4 +8,4 @@ Jestem pasjonatem technologii webowych, cyberbezpieczeństwa i wykorzystania szt
 
 - Czytelny kod
 - Optymalizacja
-- Continuous learning
+- Ciągły rozwój
