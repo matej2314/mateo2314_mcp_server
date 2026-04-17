@@ -14,7 +14,8 @@ services:
     environment:
       - NODE_ENV=production
       - MCP_HOST=0.0.0.0
-      - MCP_PORT=8090
+    env_file:
+      - .env
     restart: unless-stopped
 
 networks:

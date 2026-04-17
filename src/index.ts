@@ -1,4 +1,4 @@
-// import 'dotenv/config';
+import 'dotenv/config';
 
 import { createMcpServer } from './core/server.js';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
@@ -33,10 +33,8 @@ async function main() {
 
 	// Stdio (jeden proces, jedna sesja): const { server } = await createServerWithModules(); await startStdioTransport(server);
 
-	const internalToken = process.env.MCP_INTERNAL_TOKEN?.trim() ?? '';
 	await startHttpTransport(buildMcpServer, {
 		port: parseInt(process.env.MCP_PORT ?? '3333', 10),
-		internalToken,
 		host: process.env.MCP_HOST ?? '127.0.0.1',
 	});
 

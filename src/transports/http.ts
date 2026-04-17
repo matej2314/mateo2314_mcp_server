@@ -17,8 +17,6 @@ export type StartHttpTransportOptions = {
 	host?: string;
 	/** MCP endpoint path. Default /mcp */
 	path?: string;
-	/** Required non-empty Bearer secret for every request. */
-	internalToken?: string;
 	/** When binding to 0.0.0.0, set allowed hostnames for DNS rebinding middleware */
 	allowedHosts?: string[];
 };
@@ -34,22 +32,26 @@ export async function startHttpTransport(buildServer: () => McpServer | Promise<
 	const host = options.host ?? '127.0.0.1';
 	const sessions: Record<string, SessionRecord> = {};
 
+	const expectedToken = process.env.MCP_INTERNAL_TOKEN?.trim() ?? '';
+	if (!expectedToken) {
+		throw new Error('[HTTP Transport] MCP_INTERNAL_TOKEN must be set to a non-empty value in the environment');
+	}
+
 	const app = createMcpExpressApp({
 		host,
 		allowedHosts: options.allowedHosts,
 	});
 
-	if (options.internalToken) {
-		app.use((req, res, next) => {
-			const header = req.headers.authorization;
-			const token = header?.replace(/^Bearer\s+/i, '');
-			if (token !== options.internalToken) {
-				res.status(401).json({ error: 'Unauthorized' });
-				return;
-			}
-			next();
-		});
-	}
+	app.use((req, res, next) => {
+		const header = req.headers.authorization;
+		const token = header?.replace(/^Bearer\s+/i, '');
+
+		if (token !== expectedToken) {
+			res.status(401).json({ error: 'Unauthorized' });
+			return;
+		}
+		next();
+	});
 
 	const handlePost = async (req: Request, res: Response) => {
 		const sessionIdHeader = req.headers['mcp-session-id'];
