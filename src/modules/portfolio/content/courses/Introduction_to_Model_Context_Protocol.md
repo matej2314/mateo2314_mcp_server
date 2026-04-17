@@ -6,7 +6,7 @@ provider: Anthropic Education
 url: https://anthropic.skilljar.com/introduction-to-model-context-protocol
 year: 2026
 status: completed
-tags: ["ai","mcp", "python", "sdk", "tools", "resources", "prompts"]
+tags: ["ai","mcp", "sdk", "tools", "resources", "prompts"]
 duration: 1 godzina
 instructor: --
 rating: 5
