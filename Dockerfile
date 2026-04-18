@@ -44,4 +44,4 @@ USER nodejs
 EXPOSE 8090
 
 # Start application
-CMD ["node", "dist/src/index.js"]
+CMD ["npm", "start"]
