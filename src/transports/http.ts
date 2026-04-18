@@ -32,7 +32,7 @@ export async function startHttpTransport(buildServer: () => McpServer | Promise<
 	const host = options.host ?? '127.0.0.1';
 	const sessions: Record<string, SessionRecord> = {};
 
-	const expectedToken = process.env.MCP_INTERNAL_TOKEN?.trim() ?? '';
+	const expectedToken = process.env.MCP_INTERNAL_TOKEN?.trim();
 	if (!expectedToken) {
 		throw new Error('[HTTP Transport] MCP_INTERNAL_TOKEN must be set to a non-empty value in the environment');
 	}
@@ -44,7 +44,7 @@ export async function startHttpTransport(buildServer: () => McpServer | Promise<
 
 	app.use((req, res, next) => {
 		const header = req.headers.authorization;
-		const token = header?.replace(/^Bearer\s+/i, '');
+		const token = header && header.replace(/^Bearer\s+/i, '');
 
 		if (token !== expectedToken) {
 			res.status(401).json({ error: 'Unauthorized' });
