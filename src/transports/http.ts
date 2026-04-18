@@ -13,20 +13,24 @@ type SessionRecord = {
 
 export type StartHttpTransportOptions = {
 	port: number;
-	/** Passed to createMcpExpressApp + listen. Default 127.0.0.1; use 0.0.0.0 for Docker/VPS. */
 	host?: string;
-	/** MCP endpoint path. Default /mcp */
 	path?: string;
-	/** When binding to 0.0.0.0, set allowed hostnames for DNS rebinding middleware */
 	allowedHosts?: string[];
 };
 
-/**
- * Streamable HTTP transport (stateful sessions). Alternative to stdio.
- *
- * One {@link McpServer} is tied to one transport; each MCP session gets a fresh server from
- * `buildServer()` — same pattern as SDK `simpleStreamableHttp` example.
- */
+function jsonRpcError(res: Response, status: number, code: number, message: string) {
+	if (res.headersSent) return;
+	res.status(status).json({
+		jsonrpc: '2.0',
+		error: { code, message },
+		id: null,
+	});
+}
+
+function clientSafeInternalMessage(_error: unknown): string {
+	return 'Internal server error.';
+}
+
 export async function startHttpTransport(buildServer: () => McpServer | Promise<McpServer>, options: StartHttpTransportOptions): Promise<void> {
 	const mountPath = options.path ?? '/mcp';
 	const host = options.host ?? '127.0.0.1';
@@ -42,12 +46,18 @@ export async function startHttpTransport(buildServer: () => McpServer | Promise<
 		allowedHosts: options.allowedHosts,
 	});
 
+	app.use((req, _res, next) => {
+		const rId = req.headers['x-request-id'];
+		(req as Request & { requestId?: string }).requestId = typeof rId === 'string' && rId.trim() ? rId.trim() : randomUUID();
+		next();
+	});
+
 	app.use((req, res, next) => {
 		const header = req.headers.authorization;
 		const token = header && header.replace(/^Bearer\s+/i, '');
 
 		if (token !== expectedToken) {
-			res.status(401).json({ error: 'Unauthorized' });
+			jsonRpcError(res, 401, -32001, 'Unauthorized');
 			return;
 		}
 		next();
@@ -56,6 +66,7 @@ export async function startHttpTransport(buildServer: () => McpServer | Promise<
 	const handlePost = async (req: Request, res: Response) => {
 		const sessionIdHeader = req.headers['mcp-session-id'];
 		const sessionId = typeof sessionIdHeader === 'string' ? sessionIdHeader : undefined;
+		const requestId = (req as Request & { requestId?: string }).requestId;
 
 		try {
 			const existing = sessionId ? sessions[sessionId] : undefined;
@@ -86,22 +97,15 @@ export async function startHttpTransport(buildServer: () => McpServer | Promise<
 				return;
 			}
 
-			res.status(400).json({
-				jsonrpc: '2.0',
-				error: {
-					code: -32000,
-					message: 'Bad Request: No valid session ID provided',
-				},
-				id: null,
-			});
+			jsonRpcError(res, 400, -32000, 'Bad Request: No valid session Id provided.');
 		} catch (error) {
-			console.error('[HTTP Transport] Error:', error);
+			console.error(`[HTTP Transport] POST error requestId=${requestId}:`, error);
 			if (!res.headersSent) {
 				res.status(500).json({
 					jsonrpc: '2.0',
 					error: {
 						code: -32603,
-						message: error instanceof Error ? error.message : 'Internal server error',
+						message: clientSafeInternalMessage(error),
 					},
 					id: null,
 				});
@@ -112,21 +116,35 @@ export async function startHttpTransport(buildServer: () => McpServer | Promise<
 	const handleGet = async (req: Request, res: Response) => {
 		const sessionIdHeader = req.headers['mcp-session-id'];
 		const sessionId = typeof sessionIdHeader === 'string' ? sessionIdHeader : undefined;
-		if (!sessionId || !sessions[sessionId]) {
-			res.status(400).send('Invalid or missing session ID');
-			return;
+		const requestId = (req as Request & { requestId?: string }).requestId;
+
+		try {
+			if (!sessionId || !sessions[sessionId]) {
+				jsonRpcError(res, 400, -32000, 'Invalid or missing session ID.');
+				return;
+			}
+			await sessions[sessionId].transport.handleRequest(req as IncomingMessage, res as ServerResponse);
+		} catch (error) {
+			console.error(`[HTTP Transport] GET error requestId=${requestId}:`, error);
+			jsonRpcError(res, 500, -32603, clientSafeInternalMessage(error));
 		}
-		await sessions[sessionId].transport.handleRequest(req as IncomingMessage, res as ServerResponse);
 	};
 
 	const handleDelete = async (req: Request, res: Response) => {
 		const sessionIdHeader = req.headers['mcp-session-id'];
 		const sessionId = typeof sessionIdHeader === 'string' ? sessionIdHeader : undefined;
-		if (!sessionId || !sessions[sessionId]) {
-			res.status(400).send('Invalid or missing session ID');
-			return;
+		const requestId = (req as Request & { requestId?: string }).requestId;
+
+		try {
+			if (!sessionId || !sessions[sessionId]) {
+				jsonRpcError(res, 400, -32000, 'Invalid or missing session ID.');
+				return;
+			}
+			await sessions[sessionId].transport.handleRequest(req as IncomingMessage, res as ServerResponse);
+		} catch (error) {
+			console.error(`[HTTP Transport] DELETE error requestId=${requestId}:`, error);
+			jsonRpcError(res, 500, -32603, clientSafeInternalMessage(error));
 		}
-		await sessions[sessionId].transport.handleRequest(req as IncomingMessage, res as ServerResponse);
 	};
 
 	app.post(mountPath, handlePost);

@@ -1,13 +1,44 @@
-import manifest from '../content/manifest.json' with { type: 'json' };
+import fs from 'fs/promises';
+import path from 'path';
+import { CONTENT_ROOT } from './paths.js';
 import { loadSectionDocuments } from './corpus.js';
+
+type SearchManifest = {
+	sections: Array<{ name: string }>;
+};
+
+let manifestPromise: Promise<SearchManifest> | null = null;
+
+function resolveManifestPath(): string {
+	const override = process.env.PORTFOLIO_MANIFEST_PATH?.trim();
+	if (override) {
+		return path.resolve(override);
+	}
+	return path.join(CONTENT_ROOT, 'manifest.json');
+}
+
+function loadManifest(): Promise<SearchManifest> {
+	if (!manifestPromise) {
+		manifestPromise = (async () => {
+			const filePath = resolveManifestPath();
+			const raw = await fs.readFile(filePath, 'utf-8');
+			return JSON.parse(raw) as SearchManifest;
+		})().catch(err => {
+			manifestPromise = null;
+			throw err;
+		});
+	}
+	return manifestPromise;
+}
 
 export async function searchCorpus(
 	query: string,
 	section?: string
 ): Promise<Array<{ section: string; id: string; snippet: string; relevance: number }>> {
+	const manifest = await loadManifest();
 	const lowerQuery = query.toLowerCase();
-	const names = manifest.sections.map((s) => s.name);
-	const sections = section ? names.filter((n) => n === section) : names;
+	const names = manifest.sections.map(s => s.name);
+	const sections = section ? names.filter(n => n === section) : names;
 
 	if (section && sections.length === 0) {
 		return [];
