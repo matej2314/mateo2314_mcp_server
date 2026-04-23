@@ -1,6 +1,6 @@
 import fs from 'fs/promises';
 import path from 'path';
-import { CONTENT_ROOT } from './paths.js';
+import { getPortfolioContentRoot } from './paths.js';
 import { loadSectionDocuments } from './corpus.js';
 
 type SearchManifest = {
@@ -14,7 +14,7 @@ function resolveManifestPath(): string {
 	if (override) {
 		return path.resolve(override);
 	}
-	return path.join(CONTENT_ROOT, 'manifest.json');
+	return path.join(getPortfolioContentRoot(), 'manifest.json');
 }
 
 function loadManifest(): Promise<SearchManifest> {

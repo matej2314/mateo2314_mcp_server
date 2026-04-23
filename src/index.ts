@@ -17,18 +17,14 @@ async function createServerWithModules(): Promise<{
 }
 
 async function buildMcpServer(): Promise<McpServer> {
-	const { server } = await createServerWithModules();
+	const { server, loadedModules } = await createServerWithModules();
 
+	console.error(`[Server] Loaded ${loadedModules.length} modules: ${loadedModules.join(', ')}`);
 	return server;
 }
 
 async function main() {
-	console.log = console.error;
 	console.error('Starting MCP server...');
-
-	const { server: probe, loadedModules } = await createServerWithModules();
-	console.error(`[Server] Loaded ${loadedModules.length} modules: ${loadedModules.join(', ')}`);
-	await probe.close();
 
 	await startHttpTransport(buildMcpServer, {
 		port: parseInt(process.env.MCP_PORT ?? '3333', 10),

@@ -9,7 +9,7 @@ Globalny serwer [Model Context Protocol](https://modelcontextprotocol.io/) z roz
 - **Modules** (`src/modules/<nazwa>/`) — każdy moduł eksportuje `register(server, options)` i rejestruje narzędzia pod własnym namespace z env / `config/modules.config.ts`.
 - **Config** (`config/modules.config.ts`) — lista modułów, flagi `ENABLE_MODULE_*`, namespace i opcje (np. `contentRoot` dla portfolio).
 
-Przepływ (obecny domyślny): `src/index.ts` → `createMcpServer()` → `ToolRegistry.loadModules()` → `startHttpTransport(buildMcpServer, { port, host })` (Bearer: `process.env.MCP_INTERNAL_TOKEN` w `http.ts`).
+Przepływ (obecny domyślny): `src/index.ts` → `createMcpServer()` → `ToolRegistry.loadModules()` → `startHttpTransport(buildMcpServer, { port, host })` (Bearer: **wymagany** niepusty `MCP_INTERNAL_TOKEN` — `http.ts` odrzuca start bez niego i weryfikuje nagłówek na każdym żądaniu).
 
 ## Moduły
 
@@ -57,7 +57,7 @@ Moduł jest **włączony domyślnie** (jak portfolio), dopóki nie ustawisz `ENA
 │   │   ├── toolRegistry.ts
 │   │   └── types.ts
 │   ├── transports/
-│   │   ├── http.ts                # Streamable HTTP, /mcp, Bearer opcjonalny
+│   │   ├── http.ts                # Streamable HTTP, /mcp, Bearer (wymagany MCP_INTERNAL_TOKEN)
 │   │   └── stdio.ts
 │   └── modules/
 │       ├── portfolio/
@@ -87,7 +87,7 @@ Ważne zmienne (szczegóły w [`.env.example`](./.env.example)):
 
 - **Portfolio:** `ENABLE_MODULE_PORTFOLIO`, `PORTFOLIO_NAMESPACE`, `PORTFOLIO_CONTENT_ROOT`, `PORTFOLIO_CORPUS_VERSION`
 - **test-tools:** `ENABLE_MODULE_TEST_TOOLS`, `TEST_TOOLS_NAMESPACE`
-- **Transport HTTP (aktywny w `src/index.ts`):** `MCP_HOST` (domyślnie `127.0.0.1`), `MCP_PORT` (domyślnie `3333`), `MCP_INTERNAL_TOKEN` (opcjonalny Bearer wymuszany na każdym żądaniu)
+- **Transport HTTP (aktywny w `src/index.ts`):** `MCP_HOST` (domyślnie `127.0.0.1`), `MCP_PORT` (domyślnie `3333`), **`MCP_INTERNAL_TOKEN`** — **wymagana** niepusta wartość; bez niej proces nie wystartuje; każde żądanie HTTP musi mieć `Authorization: Bearer <ten sam token>`
 
 
 ## Uruchomienie
@@ -161,7 +161,7 @@ Dostosuj ścieżki do swojego dysku. Dla samego portfolio możesz wskazać `src\
 
 3. Zrestartuj Cursor i sprawdź panel MCP.
 
-**HTTP (VPS / agenci zdalni):** po `npm start` endpoint MCP jest pod ścieżką **`/mcp`** (Streamable HTTP). Przy `MCP_INTERNAL_TOKEN` dołącz nagłówek `Authorization: Bearer …`. W repozytorium jest przykład portów i `MCP_HOST=0.0.0.0` w [`docker-compose.yml`](./docker-compose.yml).
+**HTTP (VPS / agenci zdalni):** po `npm start` endpoint MCP jest pod ścieżką **`/mcp`** (Streamable HTTP). Ustaw `MCP_INTERNAL_TOKEN` w środowisku (np. `.env` / `docker-compose`) i dołącz do każdego żądania nagłówek `Authorization: Bearer …` z tą wartością. W repozytorium jest przykład portów i `MCP_HOST=0.0.0.0` w [`docker-compose.yml`](./docker-compose.yml).
 
 ## Testowanie w Cursor
 
@@ -201,7 +201,7 @@ Zachowaj nazwy narzędzi i kontrakty; podmień implementację w warstwie lib (np
 
 ### Transport HTTP
 
-Zaimplementowany w [`src/transports/http.ts`](./src/transports/http.ts) (Streamable HTTP, sesje, opcjonalny Bearer). Szerszy opis planu / decyzji mógł być w `MCP.md` — plik może być wyłączony z gita (patrz `.gitignore`); stan faktyczny zawsze w kodzie `index.ts` + `http.ts`.
+Zaimplementowany w [`src/transports/http.ts`](./src/transports/http.ts) (Streamable HTTP, sesje, **wymagany** Bearer `MCP_INTERNAL_TOKEN`). Szerszy opis planu / decyzji mógł być w `MCP.md` — plik może być wyłączony z gita (patrz `.gitignore`); stan faktyczny zawsze w kodzie `index.ts` + `http.ts`.
 
 ### Transport stdio
 

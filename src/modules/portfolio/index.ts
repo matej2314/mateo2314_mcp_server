@@ -1,5 +1,8 @@
+import path from 'path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { PortfolioModuleConfig } from '../../../config/modules.config.js';
 import { ModuleOptions } from '../../core/types.js';
+import { setPortfolioContentRoot } from './lib/paths.js';
 import { registerAboutTools } from './tools/about.js';
 import { registerCoursesTools } from './tools/courses.js';
 import { registerExperienceTools } from './tools/experience.js';
@@ -11,6 +14,14 @@ import { registerSkillsTools } from './tools/skills.js';
 
 export async function register(server: McpServer, options: ModuleOptions = {}) {
 	const namespace = options.namespace || 'portfolio';
+
+	const cfg = options.config as PortfolioModuleConfig | undefined;
+	const rawRoot = cfg?.contentRoot;
+	if (typeof rawRoot !== 'string' || !rawRoot.trim()) {
+		throw new Error('[portfolio] No config.contentRoot. Check portfolio entry in modules.config.ts and that ToolRegistry passes options.config.');
+	}
+	setPortfolioContentRoot(path.resolve(rawRoot));
+
 	const toolOptions = { namespace };
 
 	registerProfileTools(server, toolOptions);
