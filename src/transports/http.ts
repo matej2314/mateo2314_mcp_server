@@ -1,15 +1,18 @@
-import type { IncomingMessage, ServerResponse } from 'node:http';
-import { randomUUID } from 'node:crypto';
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { randomUUID } from 'crypto';
+import { type IncomingMessage, type ServerResponse } from 'http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
-import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
-import type { Request, Response } from 'express';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types';
+import { getEnabledModuleByName } from '../../config/modules.config';
+import { type McpServer } from '@modelcontextprotocol/sdk/server/mcp';
+import { type Request, type Response } from 'express';
+import { type ModuleConfig } from '../../config/modules.config';
 
-type SessionRecord = {
+interface SessionRecord {
 	transport: StreamableHTTPServerTransport;
 	server: McpServer;
-};
+	moduleId: string;
+}
 
 export type StartHttpTransportOptions = {
 	port: number;
@@ -28,10 +31,10 @@ function jsonRpcError(res: Response, status: number, code: number, message: stri
 }
 
 function clientSafeInternalMessage(_error: unknown): string {
-	return 'Internal server error.';
+	return 'Internal server error';
 }
 
-export async function startHttpTransport(buildServer: () => McpServer | Promise<McpServer>, options: StartHttpTransportOptions): Promise<void> {
+export async function startHttpTransport(buildServer: (moduleConfig: ModuleConfig) => McpServer | Promise<McpServer>, options: StartHttpTransportOptions): Promise<void> {
 	const mountPath = options.path ?? '/mcp';
 	const host = options.host ?? '127.0.0.1';
 	const sessions: Record<string, SessionRecord> = {};
@@ -57,30 +60,48 @@ export async function startHttpTransport(buildServer: () => McpServer | Promise<
 		const token = header && header.replace(/^Bearer\s+/i, '');
 
 		if (token !== expectedToken) {
-			jsonRpcError(res, 401, -32001, 'Unauthorized');
+			jsonRpcError(res, 401, -32001, 'Unauthorized: invalid or missing bearer token');
 			return;
 		}
 		next();
 	});
 
+	const moduleMountPath = `${mountPath}/:moduleId`;
+
 	const handlePost = async (req: Request, res: Response) => {
 		const sessionIdHeader = req.headers['mcp-session-id'];
 		const sessionId = typeof sessionIdHeader === 'string' ? sessionIdHeader : undefined;
 		const requestId = (req as Request & { requestId?: string }).requestId;
+		const moduleIdParam = req.params.moduleId as string | undefined;
 
 		try {
+			if (!moduleIdParam) {
+				jsonRpcError(res, 400, -32000, 'Bad Request: module id missing in path');
+				return;
+			}
+
 			const existing = sessionId ? sessions[sessionId] : undefined;
 			if (existing) {
+				if (existing.moduleId !== moduleIdParam) {
+					jsonRpcError(res, 403, -32000, 'Forbidden: session does not match this module path.');
+					return;
+				}
 				await existing.transport.handleRequest(req as IncomingMessage, res as ServerResponse, req.body);
 				return;
 			}
 
 			if (!sessionId && isInitializeRequest(req.body)) {
-				const server = await buildServer();
+				const moduleConfig = getEnabledModuleByName(moduleIdParam);
+				if (!moduleConfig) {
+					jsonRpcError(res, 404, -32001, `Unknown or disabled module: ${moduleIdParam}`);
+					return;
+				}
+
+				const server = await buildServer(moduleConfig);
 				const transport = new StreamableHTTPServerTransport({
 					sessionIdGenerator: () => randomUUID(),
 					onsessioninitialized: sid => {
-						sessions[sid] = { transport, server };
+						sessions[sid] = { transport, server, moduleId: moduleIdParam };
 					},
 				});
 
@@ -97,7 +118,7 @@ export async function startHttpTransport(buildServer: () => McpServer | Promise<
 				return;
 			}
 
-			jsonRpcError(res, 400, -32000, 'Bad Request: No valid session Id provided.');
+			jsonRpcError(res, 400, -32000, 'Bad Request: missing initialize request body');
 		} catch (error) {
 			console.error(`[HTTP Transport] POST error requestId=${requestId}:`, error);
 			if (!res.headersSent) {
@@ -117,10 +138,15 @@ export async function startHttpTransport(buildServer: () => McpServer | Promise<
 		const sessionIdHeader = req.headers['mcp-session-id'];
 		const sessionId = typeof sessionIdHeader === 'string' ? sessionIdHeader : undefined;
 		const requestId = (req as Request & { requestId?: string }).requestId;
-
+		const moduleIdParam = req.params.moduleId as string | undefined;
 		try {
 			if (!sessionId || !sessions[sessionId]) {
 				jsonRpcError(res, 400, -32000, 'Invalid or missing session ID.');
+				return;
+			}
+			// REFACTOR: GET musi trafiać na ten sam `:moduleId` co przy initialize.
+			if (!moduleIdParam || sessions[sessionId].moduleId !== moduleIdParam) {
+				jsonRpcError(res, 403, -32000, 'Forbidden: session does not match this module path.');
 				return;
 			}
 			await sessions[sessionId].transport.handleRequest(req as IncomingMessage, res as ServerResponse);
@@ -129,15 +155,19 @@ export async function startHttpTransport(buildServer: () => McpServer | Promise<
 			jsonRpcError(res, 500, -32603, clientSafeInternalMessage(error));
 		}
 	};
-
 	const handleDelete = async (req: Request, res: Response) => {
 		const sessionIdHeader = req.headers['mcp-session-id'];
 		const sessionId = typeof sessionIdHeader === 'string' ? sessionIdHeader : undefined;
 		const requestId = (req as Request & { requestId?: string }).requestId;
-
+		const moduleIdParam = req.params.moduleId as string | undefined;
 		try {
 			if (!sessionId || !sessions[sessionId]) {
 				jsonRpcError(res, 400, -32000, 'Invalid or missing session ID.');
+				return;
+			}
+			// REFACTOR: Jak wyżej — spójność ścieżki z sesją.
+			if (!moduleIdParam || sessions[sessionId].moduleId !== moduleIdParam) {
+				jsonRpcError(res, 403, -32000, 'Forbidden: session does not match this module path.');
 				return;
 			}
 			await sessions[sessionId].transport.handleRequest(req as IncomingMessage, res as ServerResponse);
@@ -147,14 +177,19 @@ export async function startHttpTransport(buildServer: () => McpServer | Promise<
 		}
 	};
 
-	app.post(mountPath, handlePost);
-	app.get(mountPath, handleGet);
-	app.delete(mountPath, handleDelete);
+	app.post(moduleMountPath, handlePost);
+	app.get(moduleMountPath, handleGet);
+	app.delete(moduleMountPath, handleDelete);
 
 	await new Promise<void>((resolve, reject) => {
 		const httpServer = app
 			.listen(options.port, host, () => {
-				console.error(`[HTTP Transport] Streamable HTTP at http://${host}:${options.port}${mountPath}`);
+				console.error(
+					`[HTTP Transport] Server started and listening on port ${options.port} (host ${host})`,
+				);
+				console.error(
+					`[HTTP Transport] Streamable MCP HTTP — http://${host}:${options.port}${mountPath}/<moduleId> (e.g. ...${mountPath}/portfolio, ...${mountPath}/test-tools)`,
+				);
 				resolve();
 			})
 			.on('error', reject);
@@ -163,15 +198,13 @@ export async function startHttpTransport(buildServer: () => McpServer | Promise<
 			for (const sid of Object.keys(sessions)) {
 				try {
 					await sessions[sid]?.transport.close();
-				} catch {
-					/* ignore */
-				}
+				} catch {}
 				delete sessions[sid];
 			}
-			httpServer.close(() => process.exit(0));
+			await httpServer.close(() => process.exit(0));
 		};
 
-		process.once('SIGINT', shutdown);
-		process.once('SIGTERM', shutdown);
+		process.on('SIGINT', shutdown);
+		process.on('SIGTERM', shutdown);
 	});
 }

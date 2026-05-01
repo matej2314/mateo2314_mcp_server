@@ -1,43 +1,29 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { modulesConfig } from '../../config/modules.config.js';
-import { isMcpModule, type McpModule } from './types.js';
+import { type ModuleConfig } from '../../config/modules.config';
+import { isMcpModule, type McpModule } from './types';
 
 export class ToolRegistry {
-	private server: McpServer;
+	private mcpServer: McpServer;
 	private loadedModules: Map<string, McpModule> = new Map();
 
 	constructor(server: McpServer) {
-		this.server = server;
+		this.mcpServer = server;
 	}
 
-	async loadModules() {
-		for (const moduleConfig of modulesConfig) {
-			if (!moduleConfig.enabled) {
-				console.error(`[ToolRegistry] Skipping disabled module: ${moduleConfig.name}`);
-				continue;
-			}
+	async loadSingleModule(moduleConfig: ModuleConfig): Promise<void> {
+		const imported = await import(`../modules/${moduleConfig.name}/index.js`);
 
-			try {
-				const imported = await import(`../modules/${moduleConfig.name}/index.js`);
-
-				if (!isMcpModule(imported)) {
-					console.error(
-						`[ToolRegistry] Moduł ${moduleConfig.name} is not a valid MCP module.`
-					);
-					continue;
-				}
-
-				await imported.register(this.server, {
-					namespace: moduleConfig.namespace,
-					config: moduleConfig.config,
-				});
-
-				this.loadedModules.set(moduleConfig.name, imported);
-				console.error(`[ToolRegistry] Loaded module: ${moduleConfig.name} (namespace: ${moduleConfig.namespace})`);
-			} catch (error) {
-				console.error(`[ToolRegistry] Error loading module ${moduleConfig.name}:`, error);
-			}
+		if (!isMcpModule(imported)) {
+			throw new Error(`[ToolRegistry] Module ${moduleConfig.name} is not a valid MCP module.`);
 		}
+
+		await imported.register(this.mcpServer, {
+			namespace: moduleConfig.namespace,
+			config: moduleConfig.config,
+		});
+
+		this.loadedModules.set(moduleConfig.name, imported);
+		console.error(`[ToolRegistry] Loaded module: ${moduleConfig.name} (namespace: ${moduleConfig.namespace})`);
 	}
 
 	getLoadedModules(): string[] {
