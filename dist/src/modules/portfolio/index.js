@@ -1,3 +1,5 @@
+import path from 'path';
+import { setPortfolioContentRoot } from './lib/paths.js';
 import { registerAboutTools } from './tools/about.js';
 import { registerCoursesTools } from './tools/courses.js';
 import { registerExperienceTools } from './tools/experience.js';
@@ -8,6 +10,12 @@ import { registerSearchTools } from './tools/search.js';
 import { registerSkillsTools } from './tools/skills.js';
 export async function register(server, options = {}) {
     const namespace = options.namespace || 'portfolio';
+    const cfg = options.config;
+    const rawRoot = cfg?.contentRoot;
+    if (typeof rawRoot !== 'string' || !rawRoot.trim()) {
+        throw new Error('[portfolio] No config.contentRoot. Check portfolio entry in modules.config.ts and that ToolRegistry passes options.config.');
+    }
+    setPortfolioContentRoot(path.resolve(rawRoot));
     const toolOptions = { namespace };
     registerProfileTools(server, toolOptions);
     registerAboutTools(server, toolOptions);

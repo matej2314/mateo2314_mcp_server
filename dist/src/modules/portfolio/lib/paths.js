@@ -1,12 +1,23 @@
 import path from 'path';
-import { fileURLToPath } from 'url';
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-export const CONTENT_ROOT = path.resolve(process.env.PORTFOLIO_CONTENT_ROOT || path.join(__dirname, '../content'));
+let contentRoot = '';
+export function setPortfolioContentRoot(resolvedRoot) {
+    const normalized = path.resolve(resolvedRoot);
+    contentRoot = normalized;
+}
+function getContentRoot() {
+    if (!contentRoot)
+        throw new Error('Content root not set');
+    return contentRoot;
+}
+/** Bieżący katalog treści portfolio (po `setPortfolioContentRoot` z `register`). */
+export function getPortfolioContentRoot() {
+    return getContentRoot();
+}
 export function safeJoin(...parts) {
-    const joined = path.join(CONTENT_ROOT, ...parts);
+    const root = getContentRoot();
+    const joined = path.join(root, ...parts);
     const normalized = path.normalize(joined);
-    if (!normalized.startsWith(CONTENT_ROOT)) {
+    if (!normalized.startsWith(root)) {
         throw new Error(`Path traversal detected: ${normalized}`);
     }
     return normalized;

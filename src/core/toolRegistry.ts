@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import { type ModuleConfig } from '../../config/modules.config';
-import { isMcpModule, type McpModule } from './types';
+import { type ModuleConfig } from '../../config/modules.config.js';
+import { isMcpModule, type McpModule } from './types.js';
 
 export class ToolRegistry {
 	private mcpServer: McpServer;

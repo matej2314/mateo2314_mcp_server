@@ -3,10 +3,10 @@ import { type IncomingMessage, type ServerResponse } from 'http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types';
-import { getEnabledModuleByName } from '../../config/modules.config';
+import { getEnabledModuleByName } from '../../config/modules.config.js';
 import { type McpServer } from '@modelcontextprotocol/sdk/server/mcp';
 import { type Request, type Response } from 'express';
-import { type ModuleConfig } from '../../config/modules.config';
+import { type ModuleConfig } from '../../config/modules.config.js';
 
 interface SessionRecord {
 	transport: StreamableHTTPServerTransport;

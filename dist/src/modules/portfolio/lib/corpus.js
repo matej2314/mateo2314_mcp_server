@@ -3,9 +3,6 @@ import path from 'path';
 import { safeJoin } from './paths.js';
 import { parseFrontmatter } from './frontmatter.js';
 /**
- * Struktura korpusu. MVP = pliki statyczne, produkcja = baza danych i Prisma ORM
- */
-/**
  * Listowanie plików w podkatalogu (np. 'projects')
  */
 export async function listFiles(subdir) {

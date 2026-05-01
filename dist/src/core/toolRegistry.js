@@ -1,29 +1,21 @@
-import { modulesConfig } from '../../config/modules.config.js';
+import { isMcpModule } from './types.js';
 export class ToolRegistry {
-    server;
+    mcpServer;
     loadedModules = new Map();
     constructor(server) {
-        this.server = server;
+        this.mcpServer = server;
     }
-    async loadModules() {
-        for (const moduleConfig of modulesConfig) {
-            if (!moduleConfig.enabled) {
-                console.error(`[ToolRegistry] Skipping disabled module: ${moduleConfig.name}`);
-                continue;
-            }
-            try {
-                const module = await import(`../modules/${moduleConfig.name}/index.js`);
-                await module.register(this.server, {
-                    namespace: moduleConfig.namespace,
-                    config: moduleConfig.config,
-                });
-                this.loadedModules.set(moduleConfig.name, module);
-                console.error(`[ToolRegistry] Loaded module: ${moduleConfig.name} (namespace: ${moduleConfig.namespace})`);
-            }
-            catch (error) {
-                console.error(`[ToolRegistry] Error loading module ${moduleConfig.name}:`, error);
-            }
+    async loadSingleModule(moduleConfig) {
+        const imported = await import(`../modules/${moduleConfig.name}/index.js`);
+        if (!isMcpModule(imported)) {
+            throw new Error(`[ToolRegistry] Module ${moduleConfig.name} is not a valid MCP module.`);
         }
+        await imported.register(this.mcpServer, {
+            namespace: moduleConfig.namespace,
+            config: moduleConfig.config,
+        });
+        this.loadedModules.set(moduleConfig.name, imported);
+        console.error(`[ToolRegistry] Loaded module: ${moduleConfig.name} (namespace: ${moduleConfig.namespace})`);
     }
     getLoadedModules() {
         return Array.from(this.loadedModules.keys());
