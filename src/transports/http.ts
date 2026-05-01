@@ -1,12 +1,12 @@
 import { randomUUID } from 'crypto';
-import { type IncomingMessage, type ServerResponse } from 'http';
+import { IncomingMessage, ServerResponse } from 'http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types';
 import { getEnabledModuleByName } from '../../config/modules.config.js';
-import { type McpServer } from '@modelcontextprotocol/sdk/server/mcp';
-import { type Request, type Response } from 'express';
-import { type ModuleConfig } from '../../config/modules.config.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp';
+import { Request, Response } from 'express';
+import { ModuleConfig } from '../../config/modules.config.js';
 
 interface SessionRecord {
 	transport: StreamableHTTPServerTransport;
@@ -184,12 +184,8 @@ export async function startHttpTransport(buildServer: (moduleConfig: ModuleConfi
 	await new Promise<void>((resolve, reject) => {
 		const httpServer = app
 			.listen(options.port, host, () => {
-				console.error(
-					`[HTTP Transport] Server started and listening on port ${options.port} (host ${host})`,
-				);
-				console.error(
-					`[HTTP Transport] Streamable MCP HTTP — http://${host}:${options.port}${mountPath}/<moduleId> (e.g. ...${mountPath}/portfolio, ...${mountPath}/test-tools)`,
-				);
+				console.error(`[HTTP Transport] Server started and listening on port ${options.port} (host ${host})`);
+				console.error(`[HTTP Transport] Streamable MCP HTTP — http://${host}:${options.port}${mountPath}/<moduleId> (e.g. ...${mountPath}/portfolio, ...${mountPath}/test-tools)`);
 				resolve();
 			})
 			.on('error', reject);

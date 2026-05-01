@@ -4,8 +4,8 @@ dotenv.config();
 import { createMcpServer } from './core/server.js';
 import { ToolRegistry } from './core/toolRegistry.js';
 import { startHttpTransport } from './transports/http.js';
-import { type ModuleConfig } from '../config/modules.config.js';
-import { type McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { ModuleConfig } from '../config/modules.config.js';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 async function buildMcpServerForModule(moduleConfig: ModuleConfig): Promise<McpServer> {
 	const server = createMcpServer();
