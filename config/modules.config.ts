@@ -24,7 +24,7 @@ export type ModuleConfig =
 
 const defaultPortfolioContentRoot = path.join(repoRoot, 'src', 'modules', 'portfolio', 'content');
 
-export const mmodulesConfig: ModuleConfig[] = [
+export const modulesConfig: ModuleConfig[] = [
 	{
 		name: 'portfolio',
 		enabled: process.env.ENABLE_MODULE_PORTFOLIO !== 'false',
@@ -44,7 +44,7 @@ export const mmodulesConfig: ModuleConfig[] = [
 export type ModuleId = ModuleConfig['name'];
 
 export function getEnabledModuleByName(name: string): ModuleConfig | undefined {
-	const found = mmodulesConfig.find(m => m.name === name);
+	const found = modulesConfig.find(m => m.name === name);
 	if (!found || !found.enabled) {
 		return undefined;
 	}
