@@ -2,9 +2,9 @@ import { randomUUID } from 'crypto';
 import { IncomingMessage, ServerResponse } from 'http';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { createMcpExpressApp } from '@modelcontextprotocol/sdk/server/express.js';
-import { isInitializeRequest } from '@modelcontextprotocol/sdk/types';
+import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { getEnabledModuleByName } from '../../config/modules.config.js';
-import { McpServer } from '@modelcontextprotocol/sdk/server/mcp';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Request, Response } from 'express';
 import { ModuleConfig } from '../../config/modules.config.js';
 
