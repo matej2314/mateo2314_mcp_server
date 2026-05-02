@@ -1,16 +1,17 @@
 ---
 company: JSON Crew
 role: Frontend Developer
-tech: ["react", "nextjs", "nodejs", "cms", "typescript", "tailwindcss"]
+tech: ['react', 'nextjs', 'nodejs', 'cms', 'typescript', 'tailwindcss']
 startDate: 2025-11-12
 endDate: 30.04.2026
 location: Remote
 responsibilities:
-  - Rozwój aplikacji webowych w React i Next.js
-  - Tworzenie i utrzymanie projektów CMS (w tym migracje między serwerami)
-  - Usprawnianie pracy zespołu z wykorzystaniem Cursor IDE (MCP, agenci AI)
-  - Współpraca z zespołem; wdrażanie uwag z przeglądów kodu
-  - Implementacja responsywnych interfejsów użytkownika
+    - Rozwój aplikacji webowych w React i Next.js
+    - Tworzenie i utrzymanie projektów CMS (w tym migracje między serwerami)
+    - Usprawnianie pracy zespołu z wykorzystaniem Cursor IDE (MCP, agenci AI)
+    - Współpraca z zespołem; wdrażanie uwag z przeglądów kodu
+    - Implementacja responsywnych interfejsów użytkownika
+referenceUrl: https://msliwowski.net/references/json-crew
 ---
 
 ## Opis stanowiska
@@ -20,10 +21,13 @@ Jako Frontend Developer w JSON Crew byłem odpowiedzialny za tworzenie i rozwój
 ## Główne obszary odpowiedzialności
 
 ### Rozwój aplikacji React i Next.js
+
 Tworzyłem zaawansowane aplikacje webowe wykorzystujące React i Next.js, implementując nowoczesne wzorce projektowe oraz dbając o wysoką jakość kodu. Praca obejmowała zarówno tworzenie nowych projektów od podstaw, jak i rozwijanie istniejących rozwiązań.
 
 ### Projekty WordPress
+
 Zajmowałem się tworzeniem i customizacją rozwiązań opartych na Wordpress, w tym:
+
 - Tworzenie custom themes i plugins
 - Integracja WordPress jako headless CMS z aplikacjami React/Next.js
 - Optymalizacja wydajności i SEO
@@ -36,12 +40,15 @@ Migracje między serwerami (w tym z środowiska developerskiego na infrastruktur
 ### Utrzymanie wdrożonych projektów produkcyjnych
 
 Poza rozwojem nowych funkcji zajmowałem się bieżącym utrzymaniem dostarczonych rozwiązań — w tym poprawkami i zmianami wdrażanymi na serwerach produkcyjnych klientów:
+
 - Obsługa zgłoszeń dotyczących działania projektów na produkcji oraz wdrażanie poprawek
 - Wprowadzanie mniejszych i większych zmian funkcjonalnych i konfiguracyjnych po stronie wdrożonego kodu i środowiska
 - Współpraca z klientem przy priorytetyzacji i terminach zmian na żywym systemie
 
 ### Usprawnianie pracy z Cursor IDE i MCP
+
 Wspierałem optymalizację procesów deweloperskich firmy poprzez praktyczne wykorzystanie Cursor IDE w codziennej pracy zespołu. W zakresie tej aktywności m.in.:
+
 - Konfiguracja i wykorzystanie publicznych serwerów MCP (np. Figma MCP) do pracy z designem i kontekstem projektowym
 - Tworzenie i dopracowywanie agentów (workflowy w Cursor, aktywne wykorzystywanie narzędzi takich, jak MCP) pod powtarzalne zadania
 - Dzielenie się dobrymi praktykami i wsparciem kolegów w adopcji narzędzi
