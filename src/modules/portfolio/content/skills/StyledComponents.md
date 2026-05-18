@@ -4,7 +4,7 @@ category: frontend
 tags: ["css-in-js", "react", "styling", "themes", "typescript"]
 level: intermediate
 type: library
-yearsOfExperience: 2
+yearsOfExperience: 1
 ---
 
 Style trzymam przy komponentach React dzięki styled-components — **bez osobnych plików CSS** na każdy widok, z **parametryzacją wyglądu przez propsy** i spójnym **theme providerem** dla całej aplikacji. Potrafię **budować style warunkowe**, wyciągać wspólne wzorce (mixin-like) oraz utrzymywać czytelne nazewnictwo komponentów stylowanych.

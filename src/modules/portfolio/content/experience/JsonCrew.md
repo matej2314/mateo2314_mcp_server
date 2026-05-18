@@ -3,7 +3,7 @@ company: JSON Crew
 role: Frontend Developer
 tech: ['react', 'nextjs', 'nodejs', 'cms', 'typescript', 'tailwindcss']
 startDate: 2025-11-12
-endDate: 30.04.2026
+endDate: 2026-04-30
 location: Remote
 responsibilities:
     - Rozwój aplikacji webowych w React i Next.js

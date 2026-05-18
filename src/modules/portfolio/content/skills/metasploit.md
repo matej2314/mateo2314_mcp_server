@@ -4,7 +4,7 @@ category: security
 tags: ["metasploit", "pentest", "exploitation", "msfconsole", "security"]
 level: beginner
 type: tool
-yearsOfExperience: 1
+yearsOfExperience: 2
 ---
 
 W kontrolowanych labach eksploatację ćwiczę z Metasploitem — **framework** od wyboru modułu po konfigurację payloadu i sesję na hoście docelowym. Potrafię **poruszać się po `msfconsole`**, wyszukiwać moduły po CVE/opisie oraz **rozumieć podstawowy przepływ** (exploit → handler → meterpreter/shell).

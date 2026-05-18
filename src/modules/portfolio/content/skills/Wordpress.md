@@ -4,7 +4,7 @@ category: frontend
 tags: ["wordpress", "php", "cms", "themes", "plugins", "seo"]
 level: intermediate
 type: platform
-yearsOfExperience: 2
+yearsOfExperience: 1
 ---
 
 Treści i witryny marketingowe często stawiam na WordPressie — **CMS** z rozbudową o **własny motyw i szablony**, zamiast opierania się wyłącznie na gotowych page builderach. Potrafię **budować i modyfikować motywy** (hierarchia szablonów, `functions.php`, hooki), integrować **ACF lub podobne pola** oraz utrzymywać strukturę zgodną z best practices WordPressa.

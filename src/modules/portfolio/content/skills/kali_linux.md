@@ -4,7 +4,7 @@ category: security
 tags: ["kali", "linux", "pentest", "security-tools", "debian"]
 level: beginner
 type: platform
-yearsOfExperience: 1
+yearsOfExperience: 2
 ---
 
 Dystrybucja Kali Linux daje mi **gotowe środowisko pod cyberbezpieczeństwo** — zestaw narzędzi do rekonesansu, testów sieciowych i analizy bez składania stacku od zera. Potrafię **poruszać się po systemie**, instalować i aktualizować pakiety oraz **wybierać narzędzia pod konkretny cel** zamiast uruchamiać wszystko „na próbę”.

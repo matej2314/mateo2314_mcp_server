@@ -4,7 +4,7 @@ category: security
 tags: ["burp", "pentest", "web-security", "proxy", "scanner", "owasp"]
 level: intermediate
 type: tool
-yearsOfExperience: 1
+yearsOfExperience: 2
 ---
 
 Do testów bezpieczeństwa aplikacji webowych sięgam po Burp Suite — **główne środowisko** od przechwytywania i modyfikacji żądań po analizę odpowiedzi i automatyzację powtarzalnych scenariuszy. Potrafię **konfigurować proxy**, pracować z **Repeaterem i Intruderem** oraz wykorzystywać moduły pomocnicze (np. mapowanie aplikacji, historię) w sposób uporządkowany, bez „strzelania” na ślepo.
