@@ -6,6 +6,7 @@ Globalny serwer [Model Context Protocol](https://modelcontextprotocol.io/) z roz
 
 - **Core** (`src/core/`) — tworzenie instancji `McpServer`, typy wspólne dla modułów, `ToolRegistry` ładujący moduły z konfiguracji.
 - **Transports** (`src/transports/`) — adaptery MCP: **Streamable HTTP** ([`http.ts`](./src/transports/http.ts), sesje, Express przez SDK) oraz **stdio** ([`stdio.ts`](./src/transports/stdio.ts)) — w [`src/index.ts`](./src/index.ts) domyślnie startuje **HTTP**; stdio włączasz ręcznie w entry point (krok po kroku: [Transport stdio (aktywacja)](#transport-stdio-aktywacja-alternatywy-do-http)).
+- **Observability** (`src/observability/`) — health checks oraz metryki Prometheus; endpointy podpinane w transporcie HTTP (szczegóły: [Observability](#observability)).
 - **Modules** (`src/modules/<nazwa>/`) — każdy moduł eksportuje `register(server, options)` i rejestruje narzędzia pod własnym namespace z env / `config/modules.config.ts`.
 - **Config** (`config/modules.config.ts`) — lista modułów, flagi `ENABLE_MODULE_*`, namespace i opcje (np. `contentRoot` dla portfolio).
 
@@ -57,8 +58,12 @@ Moduł jest **włączony domyślnie** (jak portfolio), dopóki nie ustawisz `ENA
 │   │   ├── toolRegistry.ts
 │   │   └── types.ts
 │   ├── transports/
-│   │   ├── http.ts                # Streamable HTTP, /mcp, Bearer (wymagany MCP_INTERNAL_TOKEN)
+│   │   ├── http.ts                # Streamable HTTP, /mcp, Bearer; podpina /healthz i /metrics
 │   │   └── stdio.ts
+│   ├── observability/
+│   │   ├── health.ts              # Aggregacja checkHealth włączonych modułów
+│   │   ├── metrics.ts             # prom-client: HTTP, sesje, auth, toolsy
+│   │   └── instrumentTool.ts      # Wrapper registerTool + observeTool
 │   └── modules/
 │       ├── portfolio/
 │       │   ├── index.ts           # register*: profile, about, manifest, search, projects, skills, experience, courses
@@ -88,7 +93,41 @@ Ważne zmienne (szczegóły w [`.env.example`](./.env.example)):
 - **Portfolio:** `ENABLE_MODULE_PORTFOLIO`, `PORTFOLIO_NAMESPACE`, `PORTFOLIO_CONTENT_ROOT`, `PORTFOLIO_CORPUS_VERSION`
 - **test-tools:** `ENABLE_MODULE_TEST_TOOLS`, `TEST_TOOLS_NAMESPACE`
 - **Transport HTTP (aktywny w `src/index.ts`):** `MCP_HOST` (domyślnie `127.0.0.1`), `MCP_PORT` (domyślnie `3333`), **`MCP_INTERNAL_TOKEN`** — **wymagana** niepusta wartość; bez niej proces nie wystartuje; każde żądanie HTTP musi mieć `Authorization: Bearer <ten sam token>`
+- **Observability (HTTP):** `HEALTH_ENABLED` / `METRICS_ENABLED` (domyślnie włączone; wyłączenie: `false`), `HEALTH_PATH` (domyślnie `/healthz`), `METRICS_PATH` (domyślnie `/metrics`)
 
+## Observability
+
+Warstwa w [`src/observability/`](./src/observability/) — health i metryki Prometheus. Endpointy rejestruje wyłącznie **transport HTTP** w [`src/transports/http.ts`](./src/transports/http.ts) (przy stdio brak `/healthz` i `/metrics`). Ścieżki `/healthz` i `/metrics` **nie** wymagają Bearer (middleware auth dotyczy tylko ścieżek pod mount MCP, domyślnie `/mcp`).
+
+### Health (`health.ts`)
+
+- Włączane, gdy `HEALTH_ENABLED !== 'false'` (ścieżka: `HEALTH_PATH`, domyślnie `/healthz`).
+- `GET` zwraca JSON `{ status, checks }` — HTTP **200** przy `status: "ok"`, **503** przy `"degraded"`.
+- `buildHealthPayload()` przechodzi włączone wpisy z `modules.config`, dynamicznie ładuje moduł i — jeśli eksportuje opcjonalne `checkHealth` — zbiera wyniki typu `HealthCheck` (`id`, `ok`, `detail?` z [`src/core/types.ts`](./src/core/types.ts)).
+- Status globalny: `"ok"`, gdy wszystkie checki mają `ok: true`; inaczej `"degraded"`. Wyjątek w checkerze staje się checkiem z `ok: false`.
+- **Portfolio** eksportuje `checkHealth`: weryfikuje, że `contentRoot` jest ustawiony i czytelny (`portfolio_content_root`).
+
+### Metryki Prometheus (`metrics.ts` + `instrumentTool.ts`)
+
+- Biblioteka: [`prom-client`](https://github.com/siimon/prom-client). Włączane, gdy `METRICS_ENABLED !== 'false'` (ścieżka: `METRICS_PATH`, domyślnie `/metrics`).
+- Przy starcie HTTP: `initMetrics()` — domyślne metryki procesu z prefixem `mcp_` oraz gauge `mcp_build_info{version="1.0.0"}`.
+- Endpoint ekspozycji: `Content-Type` z `prom-client`, body z `register.metrics()`.
+
+| Metryka | Typ | Etykiety / sens |
+|---------|-----|-----------------|
+| `mcp_http_requests_total` | Counter | `method`, `status_class` (`1xx`…`5xx`), `module` |
+| `mcp_auth_failures_total` | Counter | `reason`: `missing_token` \| `invalid_token` |
+| `mcp_protocol_errors_total` | Counter | `module`, `code` (np. `missing_module`, `unknown_module`, `session_mismatch`, `invalid_session`, …) |
+| `mcp_sessions_active` | Gauge | `module` — aktywne sesje |
+| `mcp_sessions_opened_total` / `mcp_sessions_closed_total` | Counter | `module` |
+| `mcp_tool_invocations_total` | Counter | `module`, `tool`, `result` (`ok` \| `error`) |
+| `mcp_tool_duration_seconds` | Histogram | `module`, `tool` — czas handlera |
+
+Transport HTTP zapisuje m.in. requesty (po `res.finish`), błędy auth/protokołu oraz lifecycle sesji. Narzędzia portfolio rejestrują się przez **`registerInstrumentedTool`**: owija handler, mierzy czas (`hrtime`) i woła `observeTool` (sukces / `isError` / wyjątek).
+
+### Request ID
+
+Każde żądanie HTTP dostaje `requestId` z nagłówka `x-request-id` (jeśli niepusty) albo świeże `randomUUID()` — pole na obiekcie requestu w Express.
 
 ## Uruchomienie
 
