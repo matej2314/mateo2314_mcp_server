@@ -4,16 +4,21 @@ import { toolManifestData } from '../lib/toolManifestData.js';
 import { readAllFiles, readFile } from '../lib/corpus.js';
 import { matchesCourse, toStrList, uniqueSorted } from '../lib/filterHelpers.js';
 import { toolError, toolJson } from '../lib/toolResponse.js';
+import { registerInstrumentedTool } from '../../../observability/instrumentTool.js';
 
 interface ToolOptions {
 	namespace: string;
+	moduleId: string;
 }
 
 export function registerCoursesTools(server: McpServer, options: ToolOptions) {
 	const ns = options.namespace;
+	const moduleId = options.moduleId;
 	const m = toolManifestData('courses');
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_courses_query`,
 		{
 			description: `[${ns}] Kursy z filtrami: category, platform, year, status, tags`,
@@ -45,10 +50,12 @@ export function registerCoursesTools(server: McpServer, options: ToolOptions) {
 			} catch (error) {
 				return toolError(`[${toolName}] Error`, error);
 			}
-		}
+		},
 	);
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_courses_list`,
 		{
 			description: `[${ns}] Lista wszystkich kursów (id + metadane)`,
@@ -62,10 +69,12 @@ export function registerCoursesTools(server: McpServer, options: ToolOptions) {
 			} catch (error) {
 				return toolError(`[${toolName}] Error`, error);
 			}
-		}
+		},
 	);
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_courses_get`,
 		{
 			description: `[${ns}] Szczegóły kursu po id (nazwa pliku bez .md)`,
@@ -83,10 +92,12 @@ export function registerCoursesTools(server: McpServer, options: ToolOptions) {
 			} catch (error) {
 				return toolError(`[${toolName}] Error`, error);
 			}
-		}
+		},
 	);
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_courses_tags`,
 		{
 			description: `[${ns}] Tagi / tematy kursów (manifest + frontmatter)`,
@@ -104,10 +115,12 @@ export function registerCoursesTools(server: McpServer, options: ToolOptions) {
 			} catch (error) {
 				return toolError(`[${toolName}] Error`, error);
 			}
-		}
+		},
 	);
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_courses_categories`,
 		{
 			description: `[${ns}] Kategorie kursów (manifest + pliki)`,
@@ -122,10 +135,12 @@ export function registerCoursesTools(server: McpServer, options: ToolOptions) {
 			} catch (error) {
 				return toolError(`[${toolName}] Error`, error);
 			}
-		}
+		},
 	);
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_courses_platforms`,
 		{
 			description: `[${ns}] Platformy kursów (manifest + pole platform w plikach)`,
@@ -140,6 +155,6 @@ export function registerCoursesTools(server: McpServer, options: ToolOptions) {
 			} catch (error) {
 				return toolError(`[${toolName}] Error`, error);
 			}
-		}
+		},
 	);
 }

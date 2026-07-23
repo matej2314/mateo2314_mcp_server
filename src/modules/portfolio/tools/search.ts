@@ -1,17 +1,21 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import  {validSections}  from '../lib/validSections.js';
+import { validSections } from '../lib/validSections.js';
 import { searchCorpus } from '../lib/search.js';
 import { toolError, toolJson } from '../lib/toolResponse.js';
+import { registerInstrumentedTool } from '../../../observability/instrumentTool.js';
 
 interface ToolOptions {
 	namespace: string;
+	moduleId: string;
 }
 
 export function registerSearchTools(server: McpServer, options: ToolOptions) {
 	const toolName = `${options.namespace}_search`;
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		options.moduleId,
 		toolName,
 		{
 			description: `[${options.namespace}] Wyszukiwanie pełnotekstowe po treści i frontmatterze (.md)`,
@@ -37,6 +41,6 @@ export function registerSearchTools(server: McpServer, options: ToolOptions) {
 			} catch (error) {
 				return toolError(`[${toolName}] Error`, error);
 			}
-		}
+		},
 	);
 }

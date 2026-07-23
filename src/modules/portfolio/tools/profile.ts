@@ -1,16 +1,19 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import fs from "fs/promises";
 import { safeJoin } from "../lib/paths.js";
+import { registerInstrumentedTool } from "../../../observability/instrumentTool.js";
 
 interface ToolOptions {
   namespace: string;
-  contentRoot?: string;
+  moduleId: string;
 }
 
 export function registerProfileTools(server: McpServer, options: ToolOptions) {
   const toolName = `${options.namespace}_get_profile`;
 
-  server.registerTool(
+  registerInstrumentedTool(
+    server,
+    options.moduleId,
     toolName,
     {
       description: `[${options.namespace}] Zwraca publiczny profil (kontakt, linki, krótki opis)`,
@@ -42,6 +45,6 @@ export function registerProfileTools(server: McpServer, options: ToolOptions) {
           isError: true,
         };
       }
-    }
+    },
   );
 }

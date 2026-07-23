@@ -7,6 +7,21 @@ import { getEnabledModuleByName } from '../../config/modules.config.js';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { Request, Response } from 'express';
 import { ModuleConfig } from '../../config/modules.config.js';
+import { register } from 'prom-client';
+import { buildHealthPayload } from '../observability/health.js';
+import {
+	initMetrics,
+	isMetricsEnabled,
+	recordAuthFailure,
+	recordHttpRequest,
+	recordProtocolError,
+	renderMetrics,
+	sessionClosed,
+	sessionOpened,
+	setSessionActive,
+	statusClassFromCode,
+	type ProtocolErrorCode,
+} from '../observability/metrics.js';
 
 interface SessionRecord {
 	transport: StreamableHTTPServerTransport;
@@ -30,8 +45,41 @@ function jsonRpcError(res: Response, status: number, code: number, message: stri
 	});
 }
 
+function sendJsonRpcError(
+	res: Response,
+	status: number,
+	code: number,
+	message: string,
+	meta?: { module?: string; protocolCode?: ProtocolErrorCode },
+): void {
+	if (meta?.protocolCode) {
+		recordProtocolError({
+			module: meta.module ?? 'unknown',
+			code: meta.protocolCode,
+		});
+	}
+	jsonRpcError(res, status, code, message);
+}
+
+function attachHttpRequestMetrics(req: Request, res: Response, moduleId: string): void {
+	res.on('finish', () => {
+		recordHttpRequest({
+			method: req.method,
+			statusClass: statusClassFromCode(res.statusCode),
+			module: moduleId || 'unknown',
+		});
+	});
+}
+
 function clientSafeInternalMessage(_error: unknown): string {
 	return 'Internal server error';
+}
+
+function moduleFromMcpPath(path: string, mountPath: string): string {
+	if (!path.startsWith(mountPath)) return 'unknown';
+	const rest = path.slice(mountPath.length).replace(/^\//, '');
+	const segment = rest.split('/')[0];
+	return segment || 'unknown';
 }
 
 export async function startHttpTransport(buildServer: (moduleConfig: ModuleConfig) => McpServer | Promise<McpServer>, options: StartHttpTransportOptions): Promise<void> {
@@ -55,14 +103,61 @@ export async function startHttpTransport(buildServer: (moduleConfig: ModuleConfi
 		next();
 	});
 
-	app.use((req, res, next) => {
-		const header = req.headers.authorization;
-		const token = header && header.replace(/^Bearer\s+/i, '');
+	initMetrics();
 
-		if (token !== expectedToken) {
+	const healthPath = process.env.HEALTH_PATH ?? '/healthz';
+	const metricsPath = process.env.METRICS_PATH ?? '/metrics';
+
+	if (process.env.HEALTH_ENABLED !== 'false') {
+		app.get(healthPath, async (_req, res) => {
+			const payload = await buildHealthPayload();
+			const status = payload.status === 'ok' ? 200 : 503;
+			res.status(status).json(payload);
+		});
+	}
+
+	if (isMetricsEnabled()) {
+		app.get(metricsPath, async (_req, res) => {
+			res.setHeader('Content-Type', register.contentType);
+			res.status(200).send(await renderMetrics());
+		});
+	}
+
+	const refreshSessionGauge = (moduleId: string): void => {
+		const count = Object.values(sessions).filter(s => s.moduleId === moduleId).length;
+		setSessionActive(moduleId, count);
+	};
+
+	app.use((req, res, next) => {
+		if (!req.path.startsWith(mountPath)) {
+			next();
+			return;
+		}
+
+		const header = req.headers.authorization;
+		if (!header || !/^Bearer\s+/i.test(header)) {
+			recordAuthFailure('missing_token');
+			recordHttpRequest({
+				method: req.method,
+				statusClass: '4xx',
+				module: moduleFromMcpPath(req.path, mountPath),
+			});
 			jsonRpcError(res, 401, -32001, 'Unauthorized: invalid or missing bearer token');
 			return;
 		}
+
+		const token = header.replace(/^Bearer\s+/i, '');
+		if (token !== expectedToken) {
+			recordAuthFailure('invalid_token');
+			recordHttpRequest({
+				method: req.method,
+				statusClass: '4xx',
+				module: moduleFromMcpPath(req.path, mountPath),
+			});
+			jsonRpcError(res, 401, -32001, 'Unauthorized: invalid or missing bearer token');
+			return;
+		}
+
 		next();
 	});
 
@@ -72,18 +167,25 @@ export async function startHttpTransport(buildServer: (moduleConfig: ModuleConfi
 		const sessionIdHeader = req.headers['mcp-session-id'];
 		const sessionId = typeof sessionIdHeader === 'string' ? sessionIdHeader : undefined;
 		const requestId = (req as Request & { requestId?: string }).requestId;
-		const moduleIdParam = req.params.moduleId as string | undefined;
+		const moduleIdParam = (req.params.moduleId as string | undefined) ?? 'unknown';
+		attachHttpRequestMetrics(req, res, moduleIdParam);
 
 		try {
-			if (!moduleIdParam) {
-				jsonRpcError(res, 400, -32000, 'Bad Request: module id missing in path');
+			if (!req.params.moduleId) {
+				sendJsonRpcError(res, 400, -32000, 'Bad Request: module id missing in path', {
+					module: 'unknown',
+					protocolCode: 'missing_module',
+				});
 				return;
 			}
 
 			const existing = sessionId ? sessions[sessionId] : undefined;
 			if (existing) {
 				if (existing.moduleId !== moduleIdParam) {
-					jsonRpcError(res, 403, -32000, 'Forbidden: session does not match this module path.');
+					sendJsonRpcError(res, 403, -32000, 'Forbidden: session does not match this module path.', {
+						module: moduleIdParam,
+						protocolCode: 'session_mismatch',
+					});
 					return;
 				}
 				await existing.transport.handleRequest(req as IncomingMessage, res as ServerResponse, req.body);
@@ -93,7 +195,10 @@ export async function startHttpTransport(buildServer: (moduleConfig: ModuleConfi
 			if (!sessionId && isInitializeRequest(req.body)) {
 				const moduleConfig = getEnabledModuleByName(moduleIdParam);
 				if (!moduleConfig) {
-					jsonRpcError(res, 404, -32001, `Unknown or disabled module: ${moduleIdParam}`);
+					sendJsonRpcError(res, 404, -32001, `Unknown or disabled module: ${moduleIdParam}`, {
+						module: moduleIdParam,
+						protocolCode: 'unknown_module',
+					});
 					return;
 				}
 
@@ -102,14 +207,19 @@ export async function startHttpTransport(buildServer: (moduleConfig: ModuleConfi
 					sessionIdGenerator: () => randomUUID(),
 					onsessioninitialized: sid => {
 						sessions[sid] = { transport, server, moduleId: moduleIdParam };
+						sessionOpened(moduleIdParam);
+						refreshSessionGauge(moduleIdParam);
 					},
 				});
 
 				transport.onclose = () => {
 					const sid = transport.sessionId;
+					const moduleId = sid && sessions[sid] ? sessions[sid].moduleId : moduleIdParam;
 					if (sid && sessions[sid]) {
 						delete sessions[sid];
 					}
+					sessionClosed(moduleId);
+					refreshSessionGauge(moduleId);
 					void server.close();
 				};
 
@@ -118,17 +228,16 @@ export async function startHttpTransport(buildServer: (moduleConfig: ModuleConfi
 				return;
 			}
 
-			jsonRpcError(res, 400, -32000, 'Bad Request: missing initialize request body');
+			sendJsonRpcError(res, 400, -32000, 'Bad Request: missing initialize request body', {
+				module: moduleIdParam,
+				protocolCode: 'missing_initialize',
+			});
 		} catch (error) {
 			console.error(`[HTTP Transport] POST error requestId=${requestId}:`, error);
 			if (!res.headersSent) {
-				res.status(500).json({
-					jsonrpc: '2.0',
-					error: {
-						code: -32603,
-						message: clientSafeInternalMessage(error),
-					},
-					id: null,
+				sendJsonRpcError(res, 500, -32603, clientSafeInternalMessage(error), {
+					module: moduleIdParam,
+					protocolCode: 'internal',
 				});
 			}
 		}
@@ -138,42 +247,63 @@ export async function startHttpTransport(buildServer: (moduleConfig: ModuleConfi
 		const sessionIdHeader = req.headers['mcp-session-id'];
 		const sessionId = typeof sessionIdHeader === 'string' ? sessionIdHeader : undefined;
 		const requestId = (req as Request & { requestId?: string }).requestId;
-		const moduleIdParam = req.params.moduleId as string | undefined;
+		const moduleIdParam = (req.params.moduleId as string | undefined) ?? 'unknown';
+		attachHttpRequestMetrics(req, res, moduleIdParam);
+
 		try {
 			if (!sessionId || !sessions[sessionId]) {
-				jsonRpcError(res, 400, -32000, 'Invalid or missing session ID.');
+				sendJsonRpcError(res, 400, -32000, 'Invalid or missing session ID.', {
+					module: moduleIdParam,
+					protocolCode: 'invalid_session',
+				});
 				return;
 			}
-			// REFACTOR: GET musi trafiać na ten sam `:moduleId` co przy initialize.
-			if (!moduleIdParam || sessions[sessionId].moduleId !== moduleIdParam) {
-				jsonRpcError(res, 403, -32000, 'Forbidden: session does not match this module path.');
+			if (!req.params.moduleId || sessions[sessionId].moduleId !== moduleIdParam) {
+				sendJsonRpcError(res, 403, -32000, 'Forbidden: session does not match this module path.', {
+					module: moduleIdParam,
+					protocolCode: 'session_mismatch',
+				});
 				return;
 			}
 			await sessions[sessionId].transport.handleRequest(req as IncomingMessage, res as ServerResponse);
 		} catch (error) {
 			console.error(`[HTTP Transport] GET error requestId=${requestId}:`, error);
-			jsonRpcError(res, 500, -32603, clientSafeInternalMessage(error));
+			sendJsonRpcError(res, 500, -32603, clientSafeInternalMessage(error), {
+				module: moduleIdParam,
+				protocolCode: 'internal',
+			});
 		}
 	};
+
 	const handleDelete = async (req: Request, res: Response) => {
 		const sessionIdHeader = req.headers['mcp-session-id'];
 		const sessionId = typeof sessionIdHeader === 'string' ? sessionIdHeader : undefined;
 		const requestId = (req as Request & { requestId?: string }).requestId;
-		const moduleIdParam = req.params.moduleId as string | undefined;
+		const moduleIdParam = (req.params.moduleId as string | undefined) ?? 'unknown';
+		attachHttpRequestMetrics(req, res, moduleIdParam);
+
 		try {
 			if (!sessionId || !sessions[sessionId]) {
-				jsonRpcError(res, 400, -32000, 'Invalid or missing session ID.');
+				sendJsonRpcError(res, 400, -32000, 'Invalid or missing session ID.', {
+					module: moduleIdParam,
+					protocolCode: 'invalid_session',
+				});
 				return;
 			}
-			// REFACTOR: Jak wyżej — spójność ścieżki z sesją.
-			if (!moduleIdParam || sessions[sessionId].moduleId !== moduleIdParam) {
-				jsonRpcError(res, 403, -32000, 'Forbidden: session does not match this module path.');
+			if (!req.params.moduleId || sessions[sessionId].moduleId !== moduleIdParam) {
+				sendJsonRpcError(res, 403, -32000, 'Forbidden: session does not match this module path.', {
+					module: moduleIdParam,
+					protocolCode: 'session_mismatch',
+				});
 				return;
 			}
 			await sessions[sessionId].transport.handleRequest(req as IncomingMessage, res as ServerResponse);
 		} catch (error) {
 			console.error(`[HTTP Transport] DELETE error requestId=${requestId}:`, error);
-			jsonRpcError(res, 500, -32603, clientSafeInternalMessage(error));
+			sendJsonRpcError(res, 500, -32603, clientSafeInternalMessage(error), {
+				module: moduleIdParam,
+				protocolCode: 'internal',
+			});
 		}
 	};
 

@@ -2,15 +2,19 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import fs from 'fs/promises';
 import { safeJoin } from '../lib/paths.js';
 import { toolError, toolJson } from '../lib/toolResponse.js';
+import { registerInstrumentedTool } from '../../../observability/instrumentTool.js';
 
 interface ToolOptions {
 	namespace: string;
+	moduleId: string;
 }
 
 export function registerManifestTools(server: McpServer, options: ToolOptions) {
 	const toolName = `${options.namespace}_get_manifest`;
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		options.moduleId,
 		toolName,
 		{
 			description: `[${options.namespace}] manifest.json — sekcje, pola filtrowania, tagi (MVP)`,
@@ -22,6 +26,6 @@ export function registerManifestTools(server: McpServer, options: ToolOptions) {
 			} catch (error) {
 				return toolError(`[${toolName}] Error reading manifest`, error);
 			}
-		}
+		},
 	);
 }

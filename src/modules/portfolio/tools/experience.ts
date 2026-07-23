@@ -4,16 +4,21 @@ import { toolManifestData } from '../lib/toolManifestData.js';
 import { readAllFiles, readFile } from '../lib/corpus.js';
 import { matchesExperience, toStrList, uniqueSorted } from '../lib/filterHelpers.js';
 import { toolError, toolJson } from '../lib/toolResponse.js';
+import { registerInstrumentedTool } from '../../../observability/instrumentTool.js';
 
 interface ToolOptions {
 	namespace: string;
+	moduleId: string;
 }
 
 export function registerExperienceTools(server: McpServer, options: ToolOptions) {
 	const ns = options.namespace;
+	const moduleId = options.moduleId;
 	const manifest = toolManifestData('experience');
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_experience_query`,
 		{
 			description: `[${ns}] Doświadczenie z filtrami: firma, rola, tech, rok startu/końca`,
@@ -43,10 +48,12 @@ export function registerExperienceTools(server: McpServer, options: ToolOptions)
 			} catch (error) {
 				return toolError(`[${toolName}] Error`, error);
 			}
-		}
+		},
 	);
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_experience_list`,
 		{
 			description: `[${ns}] Pełna lista wpisów doświadczenia (id + metadane)`,
@@ -60,10 +67,12 @@ export function registerExperienceTools(server: McpServer, options: ToolOptions)
 			} catch (error) {
 				return toolError(`[${toolName}] Error`, error);
 			}
-		}
+		},
 	);
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_experience_get`,
 		{
 			description: `[${ns}] Szczegóły jednego wpisu doświadczenia po id (nazwa pliku bez .md)`,
@@ -81,10 +90,12 @@ export function registerExperienceTools(server: McpServer, options: ToolOptions)
 			} catch (error) {
 				return toolError(`[${toolName}] Error`, error);
 			}
-		}
+		},
 	);
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_experience_tags`,
 		{
 			description: `[${ns}] Technologie w doświadczeniu (manifest + pole tech we frontmatter)`,
@@ -102,6 +113,6 @@ export function registerExperienceTools(server: McpServer, options: ToolOptions)
 			} catch (error) {
 				return toolError(`[${toolName}] Error`, error);
 			}
-		}
+		},
 	);
 }

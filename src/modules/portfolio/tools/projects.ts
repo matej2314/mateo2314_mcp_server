@@ -4,16 +4,21 @@ import { toolManifestData } from '../lib/toolManifestData.js';
 import { readAllFiles, readFile } from '../lib/corpus.js';
 import { matchesProject, toStrList, uniqueSorted } from '../lib/filterHelpers.js';
 import { toolError, toolJson } from '../lib/toolResponse.js';
+import { registerInstrumentedTool } from '../../../observability/instrumentTool.js';
 
 interface ToolOptions {
 	namespace: string;
+	moduleId: string;
 }
 
 export function registerProjectsTools(server: McpServer, options: ToolOptions) {
 	const ns = options.namespace;
+	const moduleId = options.moduleId;
 	const manifest = toolManifestData('projects');
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_projects_query`,
 		{
 			description: `[${ns}] Projekty z filtrami: kategoria, tech, status, rok, rola (matchAll dla tech)`,
@@ -46,7 +51,9 @@ export function registerProjectsTools(server: McpServer, options: ToolOptions) {
 		},
 	);
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_projects_list`,
 		{
 			description: `[${ns}] Lista wszystkich projektów (id + metadane frontmatter, bez treści body)`,
@@ -63,7 +70,9 @@ export function registerProjectsTools(server: McpServer, options: ToolOptions) {
 		},
 	);
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_projects_get`,
 		{
 			description: `[${ns}] Szczegóły projektu po id (nazwa pliku bez .md)`,
@@ -84,7 +93,9 @@ export function registerProjectsTools(server: McpServer, options: ToolOptions) {
 		},
 	);
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_projects_tags`,
 		{
 			description: `[${ns}] Zbiór technologii / tagów projektów (manifest + frontmatter)`,

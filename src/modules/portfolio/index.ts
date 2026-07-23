@@ -1,6 +1,6 @@
 import path from 'path';
+import fs from 'fs/promises';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { PortfolioModuleConfig } from '../../../config/modules.config.js';
 import { ModuleOptions } from '../../core/types.js';
 import { setPortfolioContentRoot } from './lib/paths.js';
 import { registerAboutTools } from './tools/about.js';
@@ -11,9 +11,12 @@ import { registerProfileTools } from './tools/profile.js';
 import { registerProjectsTools } from './tools/projects.js';
 import { registerSearchTools } from './tools/search.js';
 import { registerSkillsTools } from './tools/skills.js';
+import type { PortfolioModuleConfig } from '../../../config/modules.config.js';
+import type { HealthCheck, ModuleHealthChecker } from '../../core/types.js';
 
 export async function register(server: McpServer, options: ModuleOptions = {}) {
 	const namespace = options.namespace || 'portfolio';
+	const moduleId = options.moduleId ?? 'portfolio';
 
 	const cfg = options.config as PortfolioModuleConfig | undefined;
 	const rawRoot = cfg?.contentRoot;
@@ -22,7 +25,7 @@ export async function register(server: McpServer, options: ModuleOptions = {}) {
 	}
 	setPortfolioContentRoot(path.resolve(rawRoot));
 
-	const toolOptions = { namespace };
+	const toolOptions = { namespace, moduleId };
 
 	registerProfileTools(server, toolOptions);
 	registerAboutTools(server, toolOptions);
@@ -35,3 +38,18 @@ export async function register(server: McpServer, options: ModuleOptions = {}) {
 
 	console.error(`[portfolio] Registered tools with namespace: ${namespace}`);
 }
+
+export const checkHealth: ModuleHealthChecker = async (config: unknown) => {
+	const cfg = config as PortfolioModuleConfig | undefined;
+	const root = cfg?.contentRoot;
+	if (typeof root !== 'string' || !root.trim()) {
+		return [{ id: 'portfolio_content_root', ok: false, detail: 'missing contentRoot in module config' }];
+	}
+
+	try {
+		await fs.access(root);
+		return [{ id: 'portfolio_content_root', ok: true }];
+	} catch {
+		return [{ id: 'portfolio_content_root', ok: false, detail: 'contentRoot is not readable' }];
+	}
+};

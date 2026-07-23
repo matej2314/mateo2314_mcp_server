@@ -4,16 +4,21 @@ import { toolManifestData } from '../lib/toolManifestData.js';
 import { readAllFiles, readFile } from '../lib/corpus.js';
 import { matchesSkill, toStrList, uniqueSorted } from '../lib/filterHelpers.js';
 import { toolError, toolJson } from '../lib/toolResponse.js';
+import { registerInstrumentedTool } from '../../../observability/instrumentTool.js';
 
 interface ToolOptions {
 	namespace: string;
+	moduleId: string;
 }
 
 export function registerSkillsTools(server: McpServer, options: ToolOptions) {
 	const ns = options.namespace;
+	const moduleId = options.moduleId;
 	const manifest = toolManifestData('skills');
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_skills_query`,
 		{
 			description: `[${ns}] Umiejętności z filtrami: tags, category, level, type`,
@@ -43,10 +48,12 @@ export function registerSkillsTools(server: McpServer, options: ToolOptions) {
 			} catch (error) {
 				return toolError(`[${toolName}] Error`, error);
 			}
-		}
+		},
 	);
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_skills_list`,
 		{
 			description: `[${ns}] Lista wszystkich umiejętności (id + frontmatter)`,
@@ -60,10 +67,12 @@ export function registerSkillsTools(server: McpServer, options: ToolOptions) {
 			} catch (error) {
 				return toolError(`[${toolName}] Error`, error);
 			}
-		}
+		},
 	);
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_skills_get`,
 		{
 			description: `[${ns}] Szczegóły umiejętności po id (plik .md bez rozszerzenia)`,
@@ -81,10 +90,12 @@ export function registerSkillsTools(server: McpServer, options: ToolOptions) {
 			} catch (error) {
 				return toolError(`[${toolName}] Error`, error);
 			}
-		}
+		},
 	);
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_skills_tags`,
 		{
 			description: `[${ns}] Dostępne tagi umiejętności (manifest + frontmatter)`,
@@ -102,10 +113,12 @@ export function registerSkillsTools(server: McpServer, options: ToolOptions) {
 			} catch (error) {
 				return toolError(`[${toolName}] Error`, error);
 			}
-		}
+		},
 	);
 
-	server.registerTool(
+	registerInstrumentedTool(
+		server,
+		moduleId,
 		`${ns}_skills_categories`,
 		{
 			description: `[${ns}] Kategorie umiejętności (manifest + wartości z plików)`,
@@ -120,6 +133,6 @@ export function registerSkillsTools(server: McpServer, options: ToolOptions) {
 			} catch (error) {
 				return toolError(`[${toolName}] Error`, error);
 			}
-		}
+		},
 	);
 }
