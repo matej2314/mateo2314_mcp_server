@@ -4,9 +4,10 @@ project_category: Web Development
 tech_stack: HTML, CSS, JavaScript, Node.js, Express.js,
 status: active
 year: 2024
+github: https://github.com/matej2314/notes-web-application
 ---
 
-**Notes WebApp** to moja prosta, ale obsługująca wielu użytkowników jednocześnie aplikacja do prowadzenia osobistych notatek: funkcjonalności rejestracji i logowania, prowadzenia własnej listy notatek na koncie, wykonania podstawowych operacji na treści oraz eksportu wybranej notatki do PDF i ustawienia awatara profilu. To była **moja druga aplikacja FullStack w Node.js** — świadomie **nie klonowałem gotowych tutoriali**, tylko budowałem **własną** wersję menedżera notatek. **Publiczna instancja:** [notesapp.msliwowski.net](https://notesapp.msliwowski.net).
+**Notes WebApp** to moja prosta, ale obsługująca wielu użytkowników jednocześnie aplikacja do prowadzenia osobistych notatek: funkcjonalności rejestracji i logowania, prowadzenia własnej listy notatek na koncie, wykonania podstawowych operacji na treści oraz eksportu wybranej notatki do PDF i ustawienia awatara profilu. To była **moja druga aplikacja FullStack w Node.js** — świadomie **nie klonowałem gotowych tutoriali**, tylko budowałem **własną** wersję menedżera notatek. **Publiczna instancja:** [notesapp.msliwowski.net](https://notesapp.msliwowski.net). **Repozytorium (wersja podstawowa):** [github.com/matej2314/notes-web-application](https://github.com/matej2314/notes-web-application).
 
 ## Cel i kontekst
 Aplikacja służyła mi przede wszystkim **nauce tworzenia backendu** w Express, pracy z **relacyjną bazą (MySQL)** oraz połączeniu **klasycznego frontu (HTML + JS)** z API. **Funkcjonalność mnie satysfakcjonuje**; jednocześnie **planuję przebudowę** (np. React + SCSS) — **sam traktuję** obecną wersję jako **mój działający etap nauki**, a nie finalny produkt komercyjny.
@@ -22,6 +23,9 @@ Aplikacja służyła mi przede wszystkim **nauce tworzenia backendu** w Express,
 - **Frontend:** **Piszę** strony w HTML, style buduję przez **Tailwind CSS** (pipeline PostCSS w skryptach npm), logikę **rozbiłem na moduły JS** w katalogu publicznym zamiast jednego monolitycznego pliku.
 - **Cross-origin:** CORS **świadomie zawęziłem** (w kodzie m.in. localhost) — na własnym hostingu **dopasowuję** origin do domeny produkcyjnej.
 - **Logi operacyjne:** używam **Winstona** z codzienną rotacją plików logów i osobnym strumieniem błędów — **tak łatwiej diagnozuję** serwer bez ograniczania się do konsoli.
+
+## Alternatywny backend (NestJS)
+Oprócz podstawowego API w Express **zrefaktorowałem backend w NestJS** jako **opcjonalną zamienną warstwę serwerową** dla tej samej aplikacji — ten sam kontrakt (auth, notatki, PDF, awatar) w bardziej ustrukturyzowanym stacku, bez wymuszenia wymiany frontu. Publiczna instancja nadal opiera się o wersję Express; Nest stanowi **alternatywę rozwojową / demonstracyjną**. **Repozytorium (Nest backend):** [github.com/matej2314/notesapp_nest_backend](https://github.com/matej2314/notesapp_nest_backend).
 
 ## Co warto wiedzieć przy pytaniach „kontekstowych”
 - **Dla kogo:** projekt celował w **naukę full stacku**; mogę go polecić osobom szukającym **prostego, działającego przykładu** CRUD + auth + pliki + PDF, a nie gotowego SaaS z analityką i zespołowym backlogiem.

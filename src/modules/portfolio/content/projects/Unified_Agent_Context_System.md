@@ -4,9 +4,10 @@ project_category: Developer Tools
 tech_stack: TypeScript, Node.js, ESM, @modelcontextprotocol/sdk, Express, Streamable HTTP, Zod, Markdown,
 status: active
 year: 2026
+github: https://github.com/matej2314/mateo2314_mcp_server
 ---
 
-**Modularny serwer [Model Context Protocol](https://modelcontextprotocol.io/)** to u mnie nie tylko „kolejna integracja z Cursorem”, lecz **docelowy, centralny podsystem architektury na VPS**: **jedno spójne wejście MCP**, przez które **wszystkie agenty** mogą pobierać **autoryzatywny, kontrolowany kontekst** (portfolio, później kolejne korpusy i źródła prawdy), zamiast rozrzucać dostęp do treści po wielu ad hoc endpointach. Technicznie to nadal **rdzeń + transport + moduły domenowe**; semantycznie to **warstwa dostarczania kontekstu** w całym środowisku agentowym.
+**Modularny serwer [Model Context Protocol](https://modelcontextprotocol.io/)** to u mnie nie tylko „kolejna integracja z Cursorem”, lecz **docelowy, centralny podsystem architektury na VPS**: **jedno spójne wejście MCP**, przez które **wszystkie agenty** mogą pobierać **autoryzatywny, kontrolowany kontekst** (portfolio, później kolejne korpusy i źródła prawdy), zamiast rozrzucać dostęp do treści po wielu ad hoc endpointach. Technicznie to nadal **rdzeń + transport + moduły domenowe**; semantycznie to **warstwa dostarczania kontekstu** w całym środowisku agentowym. **Repozytorium:** [github.com/matej2314/mateo2314_mcp_server](https://github.com/matej2314/mateo2314_mcp_server).
 
 ## Cel i architektura
 Chodzi o **jeden proces–byt systemowy**, który:

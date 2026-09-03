@@ -4,9 +4,10 @@ project_category: Infrastructure
 tech_stack: Ubuntu Server, Docker, Jenkins, Prometheus, Grafana, NestJS, PostgreSQL, pgvector, MongoDB, pgAdmin, mongo-express, Wake-on-LAN,
 status: active
 year: 2026
+github: https://github.com/matej2314/homelab-infrastructure
 ---
 
-**Homelab** to moje **głównie testowe i naukowe** środowisko na własnym sprzęcie — **nie produkcja kliencka**, lecz miejsce, w którym **ćwiczę i sprawdzam**: **IT security** (z naciskiem na **web security**), **hardening Linuksa**, **DevOps** oraz — w miarę możliwości — **AI**. Korzystam z niego **regularnie w codziennej nauce i eksperymentach**, równolegle do pracy komercyjnej.
+**Homelab** to moje **głównie testowe i naukowe** środowisko na własnym sprzęcie — **nie produkcja kliencka**, lecz miejsce, w którym **ćwiczę i sprawdzam**: **IT security** (z naciskiem na **web security**), **hardening Linuksa**, **DevOps** oraz — w miarę możliwości — **AI**. Korzystam z niego **regularnie w codziennej nauce i eksperymentach**, równolegle do pracy komercyjnej. **Repozytorium:** [github.com/matej2314/homelab-infrastructure](https://github.com/matej2314/homelab-infrastructure).
 
 ## Sprzęt i host
 - **CPU:** Intel Core **i5-9500T**

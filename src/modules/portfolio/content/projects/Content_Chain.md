@@ -4,9 +4,10 @@ project_category: AI
 tech_stack: NestJS, Next.js, TypeScript, LangChain, LangGraph, Prisma, SQLite, pnpm, Zod, Pino, Prometheus, Helmet, Tailwind CSS, shadcn/ui, AI Provider Gateway,
 status: active
 year: 2026
+github: https://github.com/matej2314/content-chain
 ---
 
-**Content Chain** to mój **aktualny główny projekt w budowie**: publiczna, **self-hostowalna (MIT)** aplikacja agentowa, która **ma** generować treści **Social** (posty i rolki) oraz **Content** (copy stron / artykułów w podstawowej formie) — od briefu, przez **orchestrację agentów** i **weryfikację względem kontekstu firmy**, po zapis wyników i **obserwowalny przebieg runu**. Cel: uruchamialny dowód stacku agentowego, a nie sam opis procesu w IDE.
+**Content Chain** to mój **aktualny główny projekt w budowie**: publiczna, **self-hostowalna (MIT)** aplikacja agentowa, która **ma** generować treści **Social** (posty i rolki) oraz **Content** (copy stron / artykułów w podstawowej formie) — od briefu, przez **orchestrację agentów** i **weryfikację względem kontekstu firmy**, po zapis wyników i **obserwowalny przebieg runu**. Cel: uruchamialny dowód stacku agentowego, a nie sam opis procesu w IDE. **Repozytorium:** [github.com/matej2314/content-chain](https://github.com/matej2314/content-chain).
 
 ## Cel produktu
 Docelowo system **ma**:

@@ -4,12 +4,13 @@ project_category: Web Development
 tech_stack: HTML, CSS, JavaScript, Node.js, Express.js,
 status: active
 year: 2024
+github: https://github.com/matej2314/polish-salary-calculator
 ---
 
-**Polish Salary Calculator** to moja aplikacja webowa do **szacowania wynagrodzenia netto w polskim prawie podatkowym i prawie pracy** — osobny algorytm obliczeń dla **umowy o pracę**, **umowy zlecenia** i **umowy o dzieło**. To był **mój pierwszy „prawdziwy” projekt w Node.js i JavaScript** w momencie powstania; celowałem w **działający produkt z domenową logiką**, a nie tylko ćwiczenie z tutoriala. **Publiczna instancja:** [salarycalc.msliwowski.net](https://salarycalc.msliwowski.net).
+**Polish Salary Calculator** to moja aplikacja webowa do **szacowania wynagrodzenia netto w polskim prawie podatkowym i prawie pracy** — osobny algorytm obliczeń dla **umowy o pracę**, **umowy zlecenia** i **umowy o dzieło**. To był **mój pierwszy „prawdziwy” projekt w Node.js i JavaScript** w momencie powstania; celowałem w **działający produkt z domenową logiką**, a nie tylko ćwiczenie z tutoriala. **Publiczna instancja:** [salarycalc.msliwowski.net](https://salarycalc.msliwowski.net). **Repozytorium:** [github.com/matej2314/polish-salary-calculator](https://github.com/matej2314/polish-salary-calculator).
 
 ## Cel i kontekst domenowy
-Projekt powstał we **współpracy z koleżanką z HR i płac** — od niej otrzymałem **zasady obliczeń, interpretację pól formularza i oczekiwania co do przebiegu w UI**. Dzięki temu kalkulatory mają sens **biznesowo**, nie tylko technicznie; jednocześnie **prawo i stawki się zmieniają**, więc wyniki warto traktować jako **orientacyjne** i weryfikować w aktualnych przepisach / u użytkownika księgowości.
+Projekt powstał we **współpracy z koleżanką z HR i płac** — od niej otrzymałem **zasady obliczeń, interpretację pól formularza i oczekiwania co do przebiegu w UI**. Dzięki temu kalkulatory mają sens **biznesowo**, nie tylko technicznie; jednocześnie **prawo i stawki się zmieniają**, więc wyniki warto traktować jako **orientacyjne** i weryfikować w aktualnych przepisach / u specjalisty w zakresie księgowości.
 
 ## Co robi użytkownik
 - **Konto:** rejestracja i logowanie; **MySQL** trzyma użytkowników, sesję opieram o **JWT** (m.in. nagłówek `Authorization` przy wywołaniach API po stronie frontu).
