@@ -1,0 +1,698 @@
+{
+  "info": {
+    "_postman_id": "a7c3e1d0-4b8f-4e2a-9c11-5f6d8e0b2a14",
+    "name": "Trilium ETAPI",
+    "description": "Kolekcja z Fazy 1 planu integracji Trilium (MCP).\n\nAutoryzacja ETAPI: nagłówek `Authorization: <token>` **bez** prefiksu `Bearer`.\n\nPo imporcie uzupełnij zmienne kolekcji (albo utwórz środowisko **Trilium Local** z tymi samymi kluczami):\n- `trilium_base_url` — np. `http://localhost:8080`\n- `trilium_api_token` — token z Menu → Options → ETAPI\n- `note_id` — ID istniejącej notatki (np. z URL w UI Trilium; `root` też działa)\n- `created_note_id` — ustawiane automatycznie przez test POST create-note\n\nDokumentacja: https://docs.triliumnotes.org/user-guide/advanced-usage/etapi",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "apikey",
+    "apikey": [
+      {
+        "key": "key",
+        "value": "Authorization",
+        "type": "string"
+      },
+      {
+        "key": "value",
+        "value": "{{trilium_api_token}}",
+        "type": "string"
+      },
+      {
+        "key": "in",
+        "value": "header",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "trilium_base_url",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "trilium_api_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "note_id",
+      "value": "root",
+      "type": "string"
+    },
+    {
+      "key": "created_note_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1.2 Health check",
+      "item": [
+        {
+          "name": "GET /etapi/app-info",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"app-info OK\", () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json()).to.have.property(\"appVersion\");",
+                  "});",
+                  "",
+                  "pm.test(\"app-info has dbVersion\", () => {",
+                  "  pm.expect(pm.response.json()).to.have.property(\"dbVersion\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{trilium_base_url}}/etapi/app-info",
+              "host": [
+                "{{trilium_base_url}}"
+              ],
+              "path": [
+                "etapi",
+                "app-info"
+              ]
+            },
+            "description": "Łączność i poprawność tokenu. Oczekiwany status 200, JSON z `appVersion` i `dbVersion`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "1.3 Note metadata",
+      "item": [
+        {
+          "name": "GET /etapi/notes/{noteId}",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"NoteMetadata shape\", () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const note = pm.response.json();",
+                  "  [\"noteId\", \"title\", \"type\", \"mime\", \"parentNoteIds\", \"childNoteIds\"].forEach((prop) => {",
+                  "    pm.expect(note).to.have.property(prop);",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{trilium_base_url}}/etapi/notes/{{note_id}}",
+              "host": [
+                "{{trilium_base_url}}"
+              ],
+              "path": [
+                "etapi",
+                "notes",
+                "{{note_id}}"
+              ]
+            },
+            "description": "Metadane notatki (`NoteMetadata`). Ustaw `note_id` na ID z URL w UI Trilium albo zostaw `root`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "1.4 Note content",
+      "item": [
+        {
+          "name": "GET /etapi/notes/{noteId}/content",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"content returned\", () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const contentType = pm.response.headers.get(\"Content-Type\");",
+                  "  pm.expect(contentType).to.be.ok;",
+                  "  console.log(\"Content-Type:\", contentType);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{trilium_base_url}}/etapi/notes/{{note_id}}/content",
+              "host": [
+                "{{trilium_base_url}}"
+              ],
+              "path": [
+                "etapi",
+                "notes",
+                "{{note_id}}",
+                "content"
+              ]
+            },
+            "description": "Surowa treść notatki. Content-Type zależy od `type`/`mime` (tekst: `text/html` lub `text/plain`; kod: `text/plain`)."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "1.5 Search by label",
+      "item": [
+        {
+          "name": "GET /etapi/notes — #labelName",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"search results\", () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property(\"results\");",
+                  "  pm.expect(body.results).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{trilium_base_url}}/etapi/notes?search=%23category&limit=20",
+              "host": [
+                "{{trilium_base_url}}"
+              ],
+              "path": [
+                "etapi",
+                "notes"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "#category",
+                  "description": "Notatki posiadające labelkę `category`."
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Wariant `#labelName`. Pusta tablica `results` przy poprawnej kwerendzie zwykle oznacza brak testowych labelek na notatkach."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /etapi/notes — #labelName=value",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"search results\", () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property(\"results\");",
+                  "  pm.expect(body.results).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{trilium_base_url}}/etapi/notes?search=%23category%3Dtest&limit=20",
+              "host": [
+                "{{trilium_base_url}}"
+              ],
+              "path": [
+                "etapi",
+                "notes"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "#category=test",
+                  "description": "Filtr po wartości labelki (`#category=test`)."
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Wariant `#labelName=value` z planu (`search=%23category%3Dtest`)."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /etapi/notes — #labelName note.type=code",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"search results\", () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property(\"results\");",
+                  "  pm.expect(body.results).to.be.an(\"array\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{trilium_base_url}}/etapi/notes?search=%23category%20note.type%3Dcode&limit=20",
+              "host": [
+                "{{trilium_base_url}}"
+              ],
+              "path": [
+                "etapi",
+                "notes"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "#category note.type=code",
+                  "description": "Kombinacja filtrów: labelka + typ notatki."
+                },
+                {
+                  "key": "limit",
+                  "value": "20"
+                }
+              ]
+            },
+            "description": "Wariant kombinowany `#labelName note.type=code`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "1.6 Tree / children",
+      "item": [
+        {
+          "name": "GET /etapi/notes/root (childNoteIds)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"root metadata with childNoteIds\", () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const note = pm.response.json();",
+                  "  pm.expect(note).to.have.property(\"childNoteIds\");",
+                  "  pm.expect(note.childNoteIds).to.be.an(\"array\");",
+                  "  console.log(\"childNoteIds:\", note.childNoteIds);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{trilium_base_url}}/etapi/notes/root",
+              "host": [
+                "{{trilium_base_url}}"
+              ],
+              "path": [
+                "etapi",
+                "notes",
+                "root"
+              ]
+            },
+            "description": "Kanoniczna ścieżka drzewa (decyzja 1.6): **nie ma** `GET /etapi/notes/{id}/children`. `trilium_get_tree` iteruje `childNoteIds` z metadanych (ten request na `root` albo innym rodzicu)."
+          },
+          "response": []
+        },
+        {
+          "name": "GET /etapi/notes/root/children (brak w ETAPI)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"GET /children nie jest trasą ETAPI\", () => {",
+                  "  pm.expect(pm.response.code).to.be.within(400, 499);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property(\"message\");",
+                  "  pm.expect(String(body.message)).to.include(\"Router not found\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{trilium_base_url}}/etapi/notes/root/children",
+              "host": [
+                "{{trilium_base_url}}"
+              ],
+              "path": [
+                "etapi",
+                "notes",
+                "root",
+                "children"
+              ]
+            },
+            "description": "Potwierdzone na żywej instancji: **brak trasy**. Odpowiedź: `{ \"message\": \"Router not found for request GET /etapi/notes/root/children\" }`. Drzewo wyłącznie przez `GET /etapi/notes/{noteId}` → `childNoteIds`. Ten request zostaje jako test negatywny (regresja)."
+          },
+          "response": [
+            {
+              "name": "Router not found",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{trilium_base_url}}/etapi/notes/root/children",
+                  "host": [
+                    "{{trilium_base_url}}"
+                  ],
+                  "path": [
+                    "etapi",
+                    "notes",
+                    "root",
+                    "children"
+                  ]
+                }
+              },
+              "status": "Not Found",
+              "code": 404,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"message\": \"Router not found for request GET /etapi/notes/root/children\"\n}"
+            }
+          ]
+        },
+        {
+          "name": "GET /etapi/notes — hierarchia (ancestorNoteId=root)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"SearchResponse z topologią\", () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property(\"results\");",
+                  "  pm.expect(body.results).to.be.an(\"array\").that.is.not.empty;",
+                  "  body.results.forEach((note) => {",
+                  "    pm.expect(note).to.include.keys(\"noteId\", \"title\", \"parentNoteIds\", \"childNoteIds\");",
+                  "  });",
+                  "});",
+                  "",
+                  "pm.test(\"root jest w results i nie ma rodziców\", () => {",
+                  "  const byId = Object.fromEntries(pm.response.json().results.map((n) => [n.noteId, n]));",
+                  "  pm.expect(byId).to.have.property(\"root\");",
+                  "  pm.expect(byId.root.parentNoteIds).to.be.an(\"array\").that.is.empty;",
+                  "  pm.expect(byId.root.childNoteIds).to.be.an(\"array\");",
+                  "});",
+                  "",
+                  "pm.test(\"log krawędzi bez węzła w results\", () => {",
+                  "  const results = pm.response.json().results;",
+                  "  const ids = new Set(results.map((n) => n.noteId));",
+                  "  const missing = [];",
+                  "  for (const note of results) {",
+                  "    for (const childId of note.childNoteIds || []) {",
+                  "      if (!ids.has(childId)) {",
+                  "        missing.push(note.noteId + \" → \" + childId);",
+                  "      }",
+                  "    }",
+                  "  }",
+                  "  console.log(\"Hierarchia: childNoteIds bez obiektu w results:\", missing);",
+                  "  pm.expect(true).to.be.true;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{trilium_base_url}}/etapi/notes?search=note.noteId+%21%3D+%27%27&ancestorNoteId=root",
+              "host": [
+                "{{trilium_base_url}}"
+              ],
+              "path": [
+                "etapi",
+                "notes"
+              ],
+              "query": [
+                {
+                  "key": "search",
+                  "value": "note.noteId != ''",
+                  "description": "Obowiązkowy parametr ETAPI. Warunek „dowolne noteId” — nie filtruje hierarchii, tylko omija błąd SEARCH_QUERY_PARAM_MANDATORY."
+                },
+                {
+                  "key": "ancestorNoteId",
+                  "value": "root",
+                  "description": "Ogranicza wyniki do poddrzewa tej notatki (tu cały dokument od roota)."
+                }
+              ]
+            },
+            "description": "Hierarchia z **jednego** searcha, bez `GET /children` (tej trasy nie ma).\n\n**Co robi request**\n- `GET /etapi/notes` zwraca `SearchResponse`: `{ results: Note[] }` — **płaska lista**, nie zagnieżdżony JSON.\n- `search=note.noteId != ''` jest wymagane przez ETAPI (bez `search` → 400). To nie jest zapytanie o drzewo, tylko „jakakolwiek notatka”.\n- `ancestorNoteId=root` obcina zbiór do poddrzewa roota.\n\n**Jak z listy wynika drzewo**\nKażdy element `results` ma `parentNoteIds` i `childNoteIds` (oraz `parentBranchIds` / `childBranchIds`, konwencja gałęzi `{parentNoteId}_{childNoteId}`). Hierarchię składasz po stronie klienta: mapa `noteId → notatka`, krawędzie rodzic → dziecko.\n\nPrzykład z żywej instancji (ten sam kształt body co example poniżej):\n```\nroot\n├── Calendar              (#calendarRoot) → 2026 → 09 - September → 21 - Monday → test note\n├── Nowy tytuł            (liść; PATCH tytułu z kroku 1.8)\n├── MCP save test         (POST create-note)\n│   └── child test note\n└── Hidden Notes          (_hidden; typ doc)\n```\n`GET /etapi/notes/root` pokazałby tylko bezpośrednie `childNoteIds` roota — **bez** wnuka `child test note`. Ten search zwraca też głębiej, bo każda notatka w `results` niesie własne dzieci.\n\n**Czego ten JSON nie gwarantuje**\nLista **nie musi** zawierać obiektu dla każdego ID z `childNoteIds`. Na żywej odpowiedzi `_hidden` wymienia m.in. `_search`, `_globalNoteMap`, `_options`, a tych notatek nie było w `results`. Krawędź jest, węzła nie ma — nie traktuj tego requestu jako kompletnego dumpa bazy.\n\n**PoC MCP:** tańsza alternatywa niż N× `GET /etapi/notes/{id}` przy BFS. `trilium_get_tree` z planu i tak może iść po `childNoteIds` z metadanych; ten search jest kontraktem „płaska lista + topologia do złożenia grafu”. Systemowy folder `_hidden` przy składaniu grafu użytkownika zwykle odfiltrować."
+          },
+          "response": [
+            {
+              "name": "SearchResponse — płaska lista z topologią",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{trilium_base_url}}/etapi/notes?search=note.noteId+%21%3D+%27%27&ancestorNoteId=root",
+                  "host": [
+                    "{{trilium_base_url}}"
+                  ],
+                  "path": [
+                    "etapi",
+                    "notes"
+                  ],
+                  "query": [
+                    {
+                      "key": "search",
+                      "value": "note.noteId != ''"
+                    },
+                    {
+                      "key": "ancestorNoteId",
+                      "value": "root"
+                    }
+                  ]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\n  \"results\": [\n    {\n      \"noteId\": \"root\",\n      \"isProtected\": false,\n      \"title\": \"root\",\n      \"type\": \"text\",\n      \"mime\": \"text/html\",\n      \"blobId\": \"z4PhNX7vuL3xVChQ1m2A\",\n      \"parentNoteIds\": [],\n      \"childNoteIds\": [\"J9uABRItlGs7\", \"YgeSM5BvkCkr\", \"JMRbH5DNNlaI\", \"_hidden\"],\n      \"parentBranchIds\": [\"none_root\"],\n      \"childBranchIds\": [\"root_J9uABRItlGs7\", \"root_YgeSM5BvkCkr\", \"root_JMRbH5DNNlaI\", \"root__hidden\"],\n      \"attributes\": []\n    },\n    {\n      \"noteId\": \"J9uABRItlGs7\",\n      \"title\": \"Calendar\",\n      \"type\": \"text\",\n      \"parentNoteIds\": [\"root\"],\n      \"childNoteIds\": [\"ZggnryaxcDGg\"],\n      \"attributes\": [{ \"type\": \"label\", \"name\": \"calendarRoot\", \"value\": \"\" }]\n    },\n    {\n      \"noteId\": \"YgeSM5BvkCkr\",\n      \"title\": \"Nowy tytuł\",\n      \"type\": \"text\",\n      \"parentNoteIds\": [\"root\"],\n      \"childNoteIds\": []\n    },\n    {\n      \"noteId\": \"JMRbH5DNNlaI\",\n      \"title\": \"MCP save test\",\n      \"type\": \"text\",\n      \"parentNoteIds\": [\"root\"],\n      \"childNoteIds\": [\"FrTwXtfUNHOy\"]\n    },\n    {\n      \"noteId\": \"FrTwXtfUNHOy\",\n      \"title\": \"child test note\",\n      \"type\": \"text\",\n      \"parentNoteIds\": [\"JMRbH5DNNlaI\"],\n      \"childNoteIds\": []\n    },\n    {\n      \"noteId\": \"ZggnryaxcDGg\",\n      \"title\": \"2026\",\n      \"parentNoteIds\": [\"J9uABRItlGs7\"],\n      \"childNoteIds\": [\"LwzU9K5zUjXn\"]\n    },\n    {\n      \"noteId\": \"_hidden\",\n      \"title\": \"Hidden Notes\",\n      \"type\": \"doc\",\n      \"parentNoteIds\": [\"root\"],\n      \"childNoteIds\": [\"_search\", \"_globalNoteMap\", \"_options\"],\n      \"attributes\": [{ \"type\": \"label\", \"name\": \"excludeFromNoteMap\", \"value\": \"\" }]\n    }\n  ]\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "1.7 Create note",
+      "item": [
+        {
+          "name": "POST /etapi/create-note",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"create-note OK\", () => {",
+                  "  pm.response.to.have.status(201);",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property(\"note\");",
+                  "  pm.expect(body).to.have.property(\"branch\");",
+                  "  pm.expect(body.note).to.have.property(\"noteId\");",
+                  "  pm.collectionVariables.set(\"created_note_id\", body.note.noteId);",
+                  "  pm.environment.set(\"created_note_id\", body.note.noteId);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"parentNoteId\": \"root\",\n  \"title\": \"MCP save test\",\n  \"type\": \"text\",\n  \"content\": \"<p>Utworzone z Postmana</p>\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{trilium_base_url}}/etapi/create-note",
+              "host": [
+                "{{trilium_base_url}}"
+              ],
+              "path": [
+                "etapi",
+                "create-note"
+              ]
+            },
+            "description": "Tworzenie notatki (`CreateNoteDef`: `parentNoteId`, `title`, `type`, `content`). Test zapisuje `note.noteId` do `created_note_id`."
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "1.8 Update content",
+      "item": [
+        {
+          "name": "PUT /etapi/notes/{noteId}/content",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"content updated\", () => {",
+                  "  pm.response.to.have.status(204);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "text/plain"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "<p>Zaktualizowana treść</p>",
+              "options": {
+                "raw": {
+                  "language": "text"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{trilium_base_url}}/etapi/notes/{{created_note_id}}/content",
+              "host": [
+                "{{trilium_base_url}}"
+              ],
+              "path": [
+                "etapi",
+                "notes",
+                "{{created_note_id}}",
+                "content"
+              ]
+            },
+            "description": "Aktualizacja treści. ETAPI wymaga `Content-Type: text/plain` nawet gdy treść to HTML. Uruchom po 1.7 (wymaga `created_note_id`). Sukces: 204."
+          },
+          "response": []
+        },
+        {
+          "name": "PATCH /etapi/notes/{noteId} (title)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"title patched\", () => {",
+                  "  pm.response.to.have.status(200);",
+                  "  pm.expect(pm.response.json()).to.have.property(\"title\", \"Nowy tytuł\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"title\": \"Nowy tytuł\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{trilium_base_url}}/etapi/notes/{{created_note_id}}",
+              "host": [
+                "{{trilium_base_url}}"
+              ],
+              "path": [
+                "etapi",
+                "notes",
+                "{{created_note_id}}"
+              ]
+            },
+            "description": "Opcjonalna zmiana tytułu (nie treści) z kroku 1.8 planu."
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}

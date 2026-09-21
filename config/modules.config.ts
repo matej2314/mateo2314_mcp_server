@@ -1,52 +1,80 @@
-import path from 'path';
-import { fileURLToPath } from 'url';
+import path from "path";
+import { fileURLToPath } from "url";
 
-const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), '..');
+const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 export interface PortfolioModuleConfig {
-	contentRoot: string;
-	corpusVersion: string;
+  contentRoot: string;
+  corpusVersion: string;
+}
+
+export interface TriliumModuleConfig {
+  baseUrl: string;
+  apiToken: string;
 }
 
 export type ModuleConfig =
-	| {
-			name: 'portfolio';
-			enabled: boolean;
-			namespace?: string;
-			config: PortfolioModuleConfig;
-	  }
-	| {
-			name: 'test-tools';
-			enabled: boolean;
-			namespace?: string;
-			config?: undefined;
-	  };
+  | {
+      name: "portfolio";
+      enabled: boolean;
+      namespace?: string;
+      config: PortfolioModuleConfig;
+    }
+  | {
+      name: "test-tools";
+      enabled: boolean;
+      namespace?: string;
+      config?: undefined;
+    }
+  | {
+      name: "trilium";
+      enabled: boolean;
+      namespace?: string;
+      config: TriliumModuleConfig;
+    };
 
-const defaultPortfolioContentRoot = path.join(repoRoot, 'src', 'modules', 'portfolio', 'content');
+const defaultPortfolioContentRoot = path.join(
+  repoRoot,
+  "src",
+  "modules",
+  "portfolio",
+  "content",
+);
 
 export const modulesConfig: ModuleConfig[] = [
-	{
-		name: 'portfolio',
-		enabled: process.env.ENABLE_MODULE_PORTFOLIO !== 'false',
-		namespace: process.env.PORTFOLIO_NAMESPACE || 'portfolio',
-		config: {
-			contentRoot: process.env.PORTFOLIO_CONTENT_ROOT ? path.resolve(process.env.PORTFOLIO_CONTENT_ROOT) : defaultPortfolioContentRoot,
-			corpusVersion: process.env.PORTFOLIO_CORPUS_VERSION || '1.0.0',
-		},
-	},
-	{
-		name: 'test-tools',
-		enabled: process.env.ENABLE_MODULE_TEST_TOOLS !== 'false',
-		namespace: process.env.TEST_TOOLS_NAMESPACE || 'test',
-	},
+  {
+    name: "portfolio",
+    enabled: process.env.ENABLE_MODULE_PORTFOLIO !== "false",
+    namespace: process.env.PORTFOLIO_NAMESPACE || "portfolio",
+    config: {
+      contentRoot: process.env.PORTFOLIO_CONTENT_ROOT
+        ? path.resolve(process.env.PORTFOLIO_CONTENT_ROOT)
+        : defaultPortfolioContentRoot,
+      corpusVersion: process.env.PORTFOLIO_CORPUS_VERSION || "1.0.0",
+    },
+  },
+  {
+    name: "test-tools",
+    enabled: process.env.ENABLE_MODULE_TEST_TOOLS !== "false",
+    namespace: process.env.TEST_TOOLS_NAMESPACE || "test",
+  },
+  {
+    name: "trilium",
+    enabled: process.env.ENABLE_MODULE_TRILIUM !== "false",
+    namespace: process.env.TRILIUM_NAMESPACE || "trilium",
+    config: {
+      baseUrl: process.env.TRILIUM_BASE_URL ?? "",
+      apiToken: process.env.TRILIUM_API_TOKEN ?? "",
+    },
+  },
 ];
 
-export type ModuleId = ModuleConfig['name'];
+export type ModuleId = ModuleConfig["name"];
 
 export function getEnabledModuleByName(name: string): ModuleConfig | undefined {
-	const found = modulesConfig.find(m => m.name === name);
-	if (!found || !found.enabled) {
-		return undefined;
-	}
-	return found;
+  const found = modulesConfig.find((m) => m.name === name);
+  if (!found || !found.enabled) {
+    return undefined;
+  }
+  return found;
 }
