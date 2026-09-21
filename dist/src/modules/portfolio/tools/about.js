@@ -1,15 +1,16 @@
-import fs from 'fs/promises';
-import { safeJoin } from '../lib/paths.js';
-import { toolError } from '../lib/toolResponse.js';
+import fs from "fs/promises";
+import { safeJoin } from "../lib/paths.js";
+import { toolError } from "../lib/toolResponse.js";
+import { registerInstrumentedTool } from "../../../observability/instrumentTool.js";
 export function registerAboutTools(server, options) {
     const toolName = `${options.namespace}_get_about`;
-    server.registerTool(toolName, {
+    registerInstrumentedTool(server, options.moduleId, toolName, {
         description: `[${options.namespace}] Sekcja „O mnie” (surowy plik about/body.md, jak profile)`,
     }, async () => {
         try {
-            const content = await fs.readFile(safeJoin('about', 'body.md'), 'utf-8');
+            const content = await fs.readFile(safeJoin("about", "body.md"), "utf-8");
             return {
-                content: [{ type: 'text', text: content }],
+                content: [{ type: "text", text: content }],
             };
         }
         catch (error) {

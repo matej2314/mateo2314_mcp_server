@@ -1,4 +1,5 @@
 import path from 'path';
+import fs from 'fs/promises';
 import { setPortfolioContentRoot } from './lib/paths.js';
 import { registerAboutTools } from './tools/about.js';
 import { registerCoursesTools } from './tools/courses.js';
@@ -10,13 +11,14 @@ import { registerSearchTools } from './tools/search.js';
 import { registerSkillsTools } from './tools/skills.js';
 export async function register(server, options = {}) {
     const namespace = options.namespace || 'portfolio';
+    const moduleId = options.moduleId ?? 'portfolio';
     const cfg = options.config;
     const rawRoot = cfg?.contentRoot;
     if (typeof rawRoot !== 'string' || !rawRoot.trim()) {
         throw new Error('[portfolio] No config.contentRoot. Check portfolio entry in modules.config.ts and that ToolRegistry passes options.config.');
     }
     setPortfolioContentRoot(path.resolve(rawRoot));
-    const toolOptions = { namespace };
+    const toolOptions = { namespace, moduleId };
     registerProfileTools(server, toolOptions);
     registerAboutTools(server, toolOptions);
     registerManifestTools(server, toolOptions);
@@ -27,3 +29,17 @@ export async function register(server, options = {}) {
     registerCoursesTools(server, toolOptions);
     console.error(`[portfolio] Registered tools with namespace: ${namespace}`);
 }
+export const checkHealth = async (config) => {
+    const cfg = config;
+    const root = cfg?.contentRoot;
+    if (typeof root !== 'string' || !root.trim()) {
+        return [{ id: 'portfolio_content_root', ok: false, detail: 'missing contentRoot in module config' }];
+    }
+    try {
+        await fs.access(root);
+        return [{ id: 'portfolio_content_root', ok: true }];
+    }
+    catch {
+        return [{ id: 'portfolio_content_root', ok: false, detail: 'contentRoot is not readable' }];
+    }
+};

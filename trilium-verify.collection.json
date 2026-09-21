@@ -1,0 +1,738 @@
+{
+  "info": {
+    "_postman_id": "c4e8b7a1-2d59-4f06-8c3a-91b0e5d7f218",
+    "name": "Trilium MCP verify (Faza 4)",
+    "description": "Kolekcja weryfikacji integracji z Fazy 4 planu `trilium-integration-plan.md`.\n\nPrzepływ: klient MCP (Postman) → MCP Server (`/mcp/trilium`) → Trilium ETAPI.\n\n**Kolejność (Collection Runner):** 4.1 Health → 4.2 A initialize → A2 initialized → B list → C get_note → D save_note → 4.3 Metrics.\n\nPo imporcie uzupełnij zmienne (albo środowisko):\n- `mcp_base_url` — np. `http://localhost:8090` (Docker) albo `http://localhost:3333` (lokalny `MCP_PORT`)\n- `mcp_internal_token` — wartość `MCP_INTERNAL_TOKEN` z `.env` (Bearer na `/mcp/*`)\n- `note_id` — istniejąca notatka w Trilium (`root` zwykle działa)\n- `session_id` / `created_note_id` — ustawiane przez testy A i D\n\n`/healthz` i `/metrics` **nie** wymagają Bearer. Endpointy MCP tak.\n\nStreamable HTTP: `Accept: application/json, text/event-stream`. Sesja: nagłówek odpowiedzi `mcp-session-id` po initialize.\n\nCheck health w kodzie ma id `trilium_etapi` (przykład w planie: `trilium_etapi_health`). Metryka tooli: `mcp_tool_invocations_total` (nie `mcp_tool_calls_total`).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "bearer",
+    "bearer": [
+      {
+        "key": "token",
+        "value": "{{mcp_internal_token}}",
+        "type": "string"
+      }
+    ]
+  },
+  "variable": [
+    {
+      "key": "mcp_base_url",
+      "value": "http://localhost:8090",
+      "type": "string"
+    },
+    {
+      "key": "mcp_internal_token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "mcp_namespace",
+      "value": "trilium",
+      "type": "string"
+    },
+    {
+      "key": "session_id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "note_id",
+      "value": "root",
+      "type": "string"
+    },
+    {
+      "key": "created_note_id",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "4.1 Health check",
+      "description": "Krok 4.1 — `GET /healthz`. Bez Bearer. Oczekiwany `status: ok` oraz check `trilium_etapi` z `ok: true`.",
+      "item": [
+        {
+          "name": "GET /healthz",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"healthz HTTP 200\", () => {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"payload status ok + trilium_etapi\", () => {",
+                  "  const body = pm.response.json();",
+                  "  pm.expect(body).to.have.property(\"status\", \"ok\");",
+                  "  pm.expect(body.checks).to.be.an(\"array\");",
+                  "  const trilium = body.checks.find(",
+                  "    (c) => c.id === \"trilium_etapi\" || c.id === \"trilium_etapi_health\"",
+                  "  );",
+                  "  pm.expect(trilium, \"brak checka trilium_etapi — włącz ENABLE_MODULE_TRILIUM i token ETAPI\").to.exist;",
+                  "  pm.expect(trilium.ok).to.eql(true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "auth": {
+            "type": "noauth"
+          },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{mcp_base_url}}/healthz",
+              "host": ["{{mcp_base_url}}"],
+              "path": ["healthz"]
+            },
+            "description": "Sonda zdrowia. Jeśli check Trilium jest `false`: `TRILIUM_BASE_URL` (Docker: `http://trilium:8080`) i `TRILIUM_API_TOKEN`."
+          },
+          "response": [
+            {
+              "name": "healthz ok",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{mcp_base_url}}/healthz",
+                  "host": ["{{mcp_base_url}}"],
+                  "path": ["healthz"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json; charset=utf-8"
+                }
+              ],
+              "body": "{\n  \"status\": \"ok\",\n  \"checks\": [\n    { \"id\": \"portfolio_content_root\", \"ok\": true },\n    { \"id\": \"trilium_etapi\", \"ok\": true, \"detail\": \"appVersion=0.95.0\" }\n  ]\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "MCP Server — Trilium module",
+      "description": "Krok 4.2 — Streamable HTTP JSON-RPC pod `/mcp/{{mcp_namespace}}`.\n\nWymaga Bearer `MCP_INTERNAL_TOKEN`. Po A zapisz `mcp-session-id` i wołaj B–D z tym nagłówkiem.\nA2 (`notifications/initialized`) jest handshake’em MCP między initialize a `tools/list`.",
+      "item": [
+        {
+          "name": "A — Initialize session",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function parseMcpJson() {",
+                  "  const raw = pm.response.text();",
+                  "  const ct = String(pm.response.headers.get(\"Content-Type\") || \"\").toLowerCase();",
+                  "  const looksSse =",
+                  "    ct.includes(\"text/event-stream\") ||",
+                  "    raw.trim().startsWith(\"event:\") ||",
+                  "    raw.includes(\"\\ndata:\");",
+                  "  if (!looksSse) {",
+                  "    return JSON.parse(raw);",
+                  "  }",
+                  "  const payloads = [];",
+                  "  raw.split(/\\r?\\n\\r?\\n/).forEach((block) => {",
+                  "    const data = block",
+                  "      .split(/\\r?\\n/)",
+                  "      .filter((line) => line.startsWith(\"data:\"))",
+                  "      .map((line) => line.replace(/^data:\\s*/, \"\"))",
+                  "      .join(\"\\n\");",
+                  "    if (!data) return;",
+                  "    try {",
+                  "      payloads.push(JSON.parse(data));",
+                  "    } catch (e) {}",
+                  "  });",
+                  "  const rpc = payloads.filter((p) => p && (p.result !== undefined || p.error !== undefined));",
+                  "  pm.expect(rpc.length, \"JSON-RPC w SSE\").to.be.above(0);",
+                  "  return rpc[rpc.length - 1];",
+                  "}",
+                  "",
+                  "pm.test(\"initialize HTTP 200\", () => {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"mcp-session-id zapisany\", () => {",
+                  "  const sid = pm.response.headers.get(\"mcp-session-id\");",
+                  "  pm.expect(sid, \"brak nagłówka mcp-session-id\").to.be.ok;",
+                  "  pm.collectionVariables.set(\"session_id\", sid);",
+                  "  pm.environment.set(\"session_id\", sid);",
+                  "});",
+                  "",
+                  "pm.test(\"JSON-RPC initialize result\", () => {",
+                  "  const body = parseMcpJson();",
+                  "  pm.expect(body.error, JSON.stringify(body.error || null)).to.not.exist;",
+                  "  pm.expect(body.result).to.be.an(\"object\");",
+                  "  pm.expect(body.result).to.have.property(\"protocolVersion\");",
+                  "  pm.expect(body.result).to.have.property(\"capabilities\");",
+                  "  pm.expect(body.result).to.have.property(\"serverInfo\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"initialize\",\n  \"params\": {\n    \"protocolVersion\": \"2025-03-26\",\n    \"capabilities\": {},\n    \"clientInfo\": { \"name\": \"postman-test\", \"version\": \"1.0\" }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{mcp_base_url}}/mcp/{{mcp_namespace}}",
+              "host": ["{{mcp_base_url}}"],
+              "path": ["mcp", "{{mcp_namespace}}"]
+            },
+            "description": "Request A — JSON-RPC `initialize` **bez** `mcp-session-id`. Test zapisuje `mcp-session-id` z odpowiedzi do `session_id`."
+          },
+          "response": [
+            {
+              "name": "initialize result",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  },
+                  {
+                    "key": "Accept",
+                    "value": "application/json, text/event-stream"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"method\": \"initialize\",\n  \"params\": {\n    \"protocolVersion\": \"2025-03-26\",\n    \"capabilities\": {},\n    \"clientInfo\": { \"name\": \"postman-test\", \"version\": \"1.0\" }\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{mcp_base_url}}/mcp/{{mcp_namespace}}",
+                  "host": ["{{mcp_base_url}}"],
+                  "path": ["mcp", "{{mcp_namespace}}"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                },
+                {
+                  "key": "mcp-session-id",
+                  "value": "00000000-0000-4000-8000-000000000001"
+                }
+              ],
+              "body": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 1,\n  \"result\": {\n    \"protocolVersion\": \"2025-03-26\",\n    \"capabilities\": { \"tools\": { \"listChanged\": true } },\n    \"serverInfo\": { \"name\": \"mcp-server\", \"version\": \"1.0.0\" }\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "A2 — notifications/initialized",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"initialized accepted\", () => {",
+                  "  pm.expect([200, 202]).to.include(pm.response.code);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "mcp-session-id",
+                "value": "{{session_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"method\": \"notifications/initialized\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{mcp_base_url}}/mcp/{{mcp_namespace}}",
+              "host": ["{{mcp_base_url}}"],
+              "path": ["mcp", "{{mcp_namespace}}"]
+            },
+            "description": "Notyfikacja lifecycle MCP po initialize (bez `id`). Spec: klient wysyła `notifications/initialized` zanim woła `tools/list`. HTTP zwykle 202."
+          },
+          "response": []
+        },
+        {
+          "name": "B — tools/list",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function parseMcpJson() {",
+                  "  const raw = pm.response.text();",
+                  "  const ct = String(pm.response.headers.get(\"Content-Type\") || \"\").toLowerCase();",
+                  "  const looksSse =",
+                  "    ct.includes(\"text/event-stream\") ||",
+                  "    raw.trim().startsWith(\"event:\") ||",
+                  "    raw.includes(\"\\ndata:\");",
+                  "  if (!looksSse) {",
+                  "    return JSON.parse(raw);",
+                  "  }",
+                  "  const payloads = [];",
+                  "  raw.split(/\\r?\\n\\r?\\n/).forEach((block) => {",
+                  "    const data = block",
+                  "      .split(/\\r?\\n/)",
+                  "      .filter((line) => line.startsWith(\"data:\"))",
+                  "      .map((line) => line.replace(/^data:\\s*/, \"\"))",
+                  "      .join(\"\\n\");",
+                  "    if (!data) return;",
+                  "    try {",
+                  "      payloads.push(JSON.parse(data));",
+                  "    } catch (e) {}",
+                  "  });",
+                  "  const rpc = payloads.filter((p) => p && (p.result !== undefined || p.error !== undefined));",
+                  "  pm.expect(rpc.length, \"JSON-RPC w SSE\").to.be.above(0);",
+                  "  return rpc[rpc.length - 1];",
+                  "}",
+                  "",
+                  "pm.test(\"tools/list HTTP 200\", () => {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"lista zawiera 4 toole trilium\", () => {",
+                  "  const ns = pm.collectionVariables.get(\"mcp_namespace\") || \"trilium\";",
+                  "  const body = parseMcpJson();",
+                  "  pm.expect(body.error, JSON.stringify(body.error || null)).to.not.exist;",
+                  "  pm.expect(body.result.tools).to.be.an(\"array\");",
+                  "  const names = body.result.tools.map((t) => t.name);",
+                  "  [",
+                  "    ns + \"_get_note\",",
+                  "    ns + \"_list_by_label\",",
+                  "    ns + \"_get_tree\",",
+                  "    ns + \"_save_note\"",
+                  "  ].forEach((name) => {",
+                  "    pm.expect(names, names.join(\", \")).to.include(name);",
+                  "  });",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "mcp-session-id",
+                "value": "{{session_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 2,\n  \"method\": \"tools/list\",\n  \"params\": {}\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{mcp_base_url}}/mcp/{{mcp_namespace}}",
+              "host": ["{{mcp_base_url}}"],
+              "path": ["mcp", "{{mcp_namespace}}"]
+            },
+            "description": "Request B — oczekiwane nazwy: `trilium_get_note`, `trilium_list_by_label`, `trilium_get_tree`, `trilium_save_note` (prefix = `mcp_namespace`)."
+          },
+          "response": [
+            {
+              "name": "tools/list",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "mcp-session-id",
+                    "value": "{{session_id}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 2,\n  \"method\": \"tools/list\",\n  \"params\": {}\n}"
+                },
+                "url": {
+                  "raw": "{{mcp_base_url}}/mcp/{{mcp_namespace}}",
+                  "host": ["{{mcp_base_url}}"],
+                  "path": ["mcp", "{{mcp_namespace}}"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 2,\n  \"result\": {\n    \"tools\": [\n      { \"name\": \"trilium_get_note\" },\n      { \"name\": \"trilium_list_by_label\" },\n      { \"name\": \"trilium_get_tree\" },\n      { \"name\": \"trilium_save_note\" }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "C — tools/call trilium_get_note",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function parseMcpJson() {",
+                  "  const raw = pm.response.text();",
+                  "  const ct = String(pm.response.headers.get(\"Content-Type\") || \"\").toLowerCase();",
+                  "  const looksSse =",
+                  "    ct.includes(\"text/event-stream\") ||",
+                  "    raw.trim().startsWith(\"event:\") ||",
+                  "    raw.includes(\"\\ndata:\");",
+                  "  if (!looksSse) {",
+                  "    return JSON.parse(raw);",
+                  "  }",
+                  "  const payloads = [];",
+                  "  raw.split(/\\r?\\n\\r?\\n/).forEach((block) => {",
+                  "    const data = block",
+                  "      .split(/\\r?\\n/)",
+                  "      .filter((line) => line.startsWith(\"data:\"))",
+                  "      .map((line) => line.replace(/^data:\\s*/, \"\"))",
+                  "      .join(\"\\n\");",
+                  "    if (!data) return;",
+                  "    try {",
+                  "      payloads.push(JSON.parse(data));",
+                  "    } catch (e) {}",
+                  "  });",
+                  "  const rpc = payloads.filter((p) => p && (p.result !== undefined || p.error !== undefined));",
+                  "  pm.expect(rpc.length, \"JSON-RPC w SSE\").to.be.above(0);",
+                  "  return rpc[rpc.length - 1];",
+                  "}",
+                  "",
+                  "pm.test(\"get_note HTTP 200\", () => {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"result.content ma metadata i treść\", () => {",
+                  "  const body = parseMcpJson();",
+                  "  pm.expect(body.error, JSON.stringify(body.error || null)).to.not.exist;",
+                  "  pm.expect(body.result).to.be.an(\"object\");",
+                  "  pm.expect(body.result.isError).to.not.eql(true);",
+                  "  pm.expect(body.result.content).to.be.an(\"array\").that.is.not.empty;",
+                  "  const payload = JSON.parse(body.result.content[0].text);",
+                  "  pm.expect(payload).to.have.property(\"metadata\");",
+                  "  pm.expect(payload.metadata).to.include.keys(\"noteId\", \"title\", \"type\");",
+                  "  pm.expect(payload).to.have.property(\"content\");",
+                  "  pm.expect(payload.content).to.be.a(\"string\");",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "mcp-session-id",
+                "value": "{{session_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 3,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"trilium_get_note\",\n    \"arguments\": { \"noteId\": \"{{note_id}}\", \"includeContent\": true }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{mcp_base_url}}/mcp/{{mcp_namespace}}",
+              "host": ["{{mcp_base_url}}"],
+              "path": ["mcp", "{{mcp_namespace}}"]
+            },
+            "description": "Request C — `trilium_get_note` z `includeContent: true`. Tool zwraca JSON w `result.content[0].text` (`{ metadata, content }`). Ustaw `note_id` na istniejącą notatkę."
+          },
+          "response": [
+            {
+              "name": "get_note with content",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "mcp-session-id",
+                    "value": "{{session_id}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 3,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"trilium_get_note\",\n    \"arguments\": { \"noteId\": \"{{note_id}}\", \"includeContent\": true }\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{mcp_base_url}}/mcp/{{mcp_namespace}}",
+                  "host": ["{{mcp_base_url}}"],
+                  "path": ["mcp", "{{mcp_namespace}}"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 3,\n  \"result\": {\n    \"content\": [\n      {\n        \"type\": \"text\",\n        \"text\": \"{\\n  \\\"metadata\\\": {\\n    \\\"noteId\\\": \\\"root\\\",\\n    \\\"title\\\": \\\"root\\\",\\n    \\\"type\\\": \\\"text\\\"\\n  },\\n  \\\"content\\\": \\\"<p></p>\\\"\\n}\"\n      }\n    ]\n  }\n}"
+            }
+          ]
+        },
+        {
+          "name": "D — tools/call trilium_save_note (create)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "function parseMcpJson() {",
+                  "  const raw = pm.response.text();",
+                  "  const ct = String(pm.response.headers.get(\"Content-Type\") || \"\").toLowerCase();",
+                  "  const looksSse =",
+                  "    ct.includes(\"text/event-stream\") ||",
+                  "    raw.trim().startsWith(\"event:\") ||",
+                  "    raw.includes(\"\\ndata:\");",
+                  "  if (!looksSse) {",
+                  "    return JSON.parse(raw);",
+                  "  }",
+                  "  const payloads = [];",
+                  "  raw.split(/\\r?\\n\\r?\\n/).forEach((block) => {",
+                  "    const data = block",
+                  "      .split(/\\r?\\n/)",
+                  "      .filter((line) => line.startsWith(\"data:\"))",
+                  "      .map((line) => line.replace(/^data:\\s*/, \"\"))",
+                  "      .join(\"\\n\");",
+                  "    if (!data) return;",
+                  "    try {",
+                  "      payloads.push(JSON.parse(data));",
+                  "    } catch (e) {}",
+                  "  });",
+                  "  const rpc = payloads.filter((p) => p && (p.result !== undefined || p.error !== undefined));",
+                  "  pm.expect(rpc.length, \"JSON-RPC w SSE\").to.be.above(0);",
+                  "  return rpc[rpc.length - 1];",
+                  "}",
+                  "",
+                  "pm.test(\"save_note HTTP 200\", () => {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"action created + noteId\", () => {",
+                  "  const body = parseMcpJson();",
+                  "  pm.expect(body.error, JSON.stringify(body.error || null)).to.not.exist;",
+                  "  pm.expect(body.result.isError).to.not.eql(true);",
+                  "  pm.expect(body.result.content).to.be.an(\"array\").that.is.not.empty;",
+                  "  const payload = JSON.parse(body.result.content[0].text);",
+                  "  pm.expect(payload.action).to.eql(\"created\");",
+                  "  pm.expect(payload.noteId).to.be.a(\"string\").that.is.not.empty;",
+                  "  pm.collectionVariables.set(\"created_note_id\", payload.noteId);",
+                  "  pm.environment.set(\"created_note_id\", payload.noteId);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Accept",
+                "value": "application/json, text/event-stream"
+              },
+              {
+                "key": "mcp-session-id",
+                "value": "{{session_id}}"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 4,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"trilium_save_note\",\n    \"arguments\": {\n      \"parentNoteId\": \"root\",\n      \"title\": \"MCP save smoke test\",\n      \"type\": \"text\",\n      \"content\": \"<p>Zapisane przez MCP</p>\"\n    }\n  }\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "url": {
+              "raw": "{{mcp_base_url}}/mcp/{{mcp_namespace}}",
+              "host": ["{{mcp_base_url}}"],
+              "path": ["mcp", "{{mcp_namespace}}"]
+            },
+            "description": "Request D — create bez `noteId`. Oczekiwane `action: \"created\"` oraz `noteId`. Test zapisuje `created_note_id`. Potwierdź w UI Trilium albo ponów C z tym ID."
+          },
+          "response": [
+            {
+              "name": "save_note created",
+              "originalRequest": {
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "mcp-session-id",
+                    "value": "{{session_id}}"
+                  }
+                ],
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 4,\n  \"method\": \"tools/call\",\n  \"params\": {\n    \"name\": \"trilium_save_note\",\n    \"arguments\": {\n      \"parentNoteId\": \"root\",\n      \"title\": \"MCP save smoke test\",\n      \"type\": \"text\",\n      \"content\": \"<p>Zapisane przez MCP</p>\"\n    }\n  }\n}"
+                },
+                "url": {
+                  "raw": "{{mcp_base_url}}/mcp/{{mcp_namespace}}",
+                  "host": ["{{mcp_base_url}}"],
+                  "path": ["mcp", "{{mcp_namespace}}"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "json",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "application/json"
+                }
+              ],
+              "body": "{\n  \"jsonrpc\": \"2.0\",\n  \"id\": 4,\n  \"result\": {\n    \"content\": [\n      {\n        \"type\": \"text\",\n        \"text\": \"{\\n  \\\"action\\\": \\\"created\\\",\\n  \\\"noteId\\\": \\\"AbCdEfGhIjKl\\\",\\n  \\\"note\\\": { \\\"noteId\\\": \\\"AbCdEfGhIjKl\\\", \\\"title\\\": \\\"MCP save smoke test\\\" },\\n  \\\"branch\\\": { \\\"branchId\\\": \\\"root_AbCdEfGhIjKl\\\", \\\"parentNoteId\\\": \\\"root\\\" }\\n}\"\n      }\n    ]\n  }\n}"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "4.3 Metrics",
+      "description": "Krok 4.3 — `GET /metrics` po wywołaniach A–D. Bez Bearer. Szukaj `mcp_tool_invocations_total` z `module=\"trilium\"`.",
+      "item": [
+        {
+          "name": "GET /metrics",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test(\"metrics HTTP 200\", () => {",
+                  "  pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "pm.test(\"metryki modułu trilium po tools/call\", () => {",
+                  "  const text = pm.response.text();",
+                  "  pm.expect(text).to.include(\"mcp_tool_invocations_total\");",
+                  "  pm.expect(text).to.include(\"mcp_tool_duration_seconds_bucket\");",
+                  "  pm.expect(text).to.match(/module=\"trilium\"/);",
+                  "  pm.expect(text).to.match(/tool=\"trilium_get_note\"/);",
+                  "  pm.expect(text).to.match(/tool=\"trilium_save_note\"/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "auth": {
+            "type": "noauth"
+          },
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{mcp_base_url}}/metrics",
+              "host": ["{{mcp_base_url}}"],
+              "path": ["metrics"]
+            },
+            "description": "Prometheus text. Uruchom **po** 4.2 C i D. W kodzie licznik to `mcp_tool_invocations_total{module,tool,result}` (plan wspomina `mcp_tool_calls_total`)."
+          },
+          "response": [
+            {
+              "name": "metrics snippet",
+              "originalRequest": {
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{mcp_base_url}}/metrics",
+                  "host": ["{{mcp_base_url}}"],
+                  "path": ["metrics"]
+                }
+              },
+              "status": "OK",
+              "code": 200,
+              "_postman_previewlanguage": "text",
+              "header": [
+                {
+                  "key": "Content-Type",
+                  "value": "text/plain; version=0.0.4; charset=utf-8"
+                }
+              ],
+              "body": "# HELP mcp_tool_invocations_total Tool invocations\n# TYPE mcp_tool_invocations_total counter\nmcp_tool_invocations_total{module=\"trilium\",tool=\"trilium_get_note\",result=\"ok\"} 1\nmcp_tool_invocations_total{module=\"trilium\",tool=\"trilium_save_note\",result=\"ok\"} 1\n# HELP mcp_tool_duration_seconds Tool handler duration in seconds\n# TYPE mcp_tool_duration_seconds histogram\nmcp_tool_duration_seconds_bucket{module=\"trilium\",tool=\"trilium_get_note\",le=\"0.5\"} 1"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

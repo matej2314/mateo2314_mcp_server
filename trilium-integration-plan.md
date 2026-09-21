@@ -255,6 +255,91 @@ W tej samej sekcji `modulesConfig`:
 
 **Uwaga:** `ToolRegistry.loadSingleModule` dynamicznie importuje `src/modules/trilium/index.js` — gdy plik nie istnieje, załadowanie modułu rzuci błąd. Moduł tworzysz w Fazie 3. Jeśli chcesz, możesz na razie dodać wpis z `enabled: false` i przestawić po implementacji.
 
+Pełna treść `config/modules.config.ts` po obu krokach:
+
+```ts
+import path from "path";
+import { fileURLToPath } from "url";
+
+const repoRoot = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+export interface PortfolioModuleConfig {
+  contentRoot: string;
+  corpusVersion: string;
+}
+
+export interface TriliumModuleConfig {
+  baseUrl: string;
+  apiToken: string;
+}
+
+export type ModuleConfig =
+  | {
+      name: "portfolio";
+      enabled: boolean;
+      namespace?: string;
+      config: PortfolioModuleConfig;
+    }
+  | {
+      name: "test-tools";
+      enabled: boolean;
+      namespace?: string;
+      config?: undefined;
+    }
+  | {
+      name: "trilium";
+      enabled: boolean;
+      namespace?: string;
+      config: TriliumModuleConfig;
+    };
+
+const defaultPortfolioContentRoot = path.join(
+  repoRoot,
+  "src",
+  "modules",
+  "portfolio",
+  "content",
+);
+
+export const modulesConfig: ModuleConfig[] = [
+  {
+    name: "portfolio",
+    enabled: process.env.ENABLE_MODULE_PORTFOLIO !== "false",
+    namespace: process.env.PORTFOLIO_NAMESPACE || "portfolio",
+    config: {
+      contentRoot: process.env.PORTFOLIO_CONTENT_ROOT
+        ? path.resolve(process.env.PORTFOLIO_CONTENT_ROOT)
+        : defaultPortfolioContentRoot,
+      corpusVersion: process.env.PORTFOLIO_CORPUS_VERSION || "1.0.0",
+    },
+  },
+  {
+    name: "test-tools",
+    enabled: process.env.ENABLE_MODULE_TEST_TOOLS !== "false",
+    namespace: process.env.TEST_TOOLS_NAMESPACE || "test",
+  },
+  {
+    name: "trilium",
+    enabled: process.env.ENABLE_MODULE_TRILIUM !== "false",
+    namespace: process.env.TRILIUM_NAMESPACE || "trilium",
+    config: {
+      baseUrl: process.env.TRILIUM_BASE_URL ?? "",
+      apiToken: process.env.TRILIUM_API_TOKEN ?? "",
+    },
+  },
+];
+
+export type ModuleId = ModuleConfig["name"];
+
+export function getEnabledModuleByName(name: string): ModuleConfig | undefined {
+  const found = modulesConfig.find((m) => m.name === name);
+  if (!found || !found.enabled) {
+    return undefined;
+  }
+  return found;
+}
+```
+
 ---
 
 ### Krok 2.3 — Dodaj zmienne do `.env.example`
@@ -280,352 +365,1123 @@ TRILIUM_API_TOKEN=<token z Kroku 0.2>
 
 ## FAZA 3 — Implementacja modułu `src/modules/trilium/`
 
+**Cel:** Moduł MCP pod `/mcp/trilium` — cztery toole, klient ETAPI, health check. Importy lokalne ze specyfikatorem `.js` (NodeNext). JSON z ETAPI wchodzi jako `unknown` i przechodzi przez parsery; na granicy publicznej nie ma `any`. Rejestracja tooli przez `registerInstrumentedTool` (jak portfolio), nie przez `server.tool`.
+
 **Struktura plików do utworzenia:**
 
 ```
 src/modules/trilium/
-├── index.ts              # register() + checkHealth()
-├── types.ts              # branded types + interfejsy ETAPI
-└── lib/
-│   ├── triliumClient.ts  # klasa TriliumClient
-│   └── toolResponse.ts   # helpery toolOk / toolError (wzorzec z portfolio)
+├── index.ts                 # register() + checkHealth()
+├── types.ts                 # branded NoteId, NoteType, kontrakty ETAPI
+├── lib/
+│   ├── validateClientConfig.ts
+│   ├── parseEtapi.ts        # unknown → typy; błędy ETAPI
+│   ├── buildNoteTree.ts     # płaskie results → NoteTreeNode
+│   ├── triliumClient.ts
+│   └── toolResponse.ts      # toolOk / toolError (wzorzec z portfolio)
 └── tools/
-    ├── getNote.ts        # trilium_get_note
-    ├── listByLabel.ts    # trilium_list_by_label
-    ├── getTree.ts        # trilium_get_tree
-    └── saveNote.ts       # trilium_save_note
+    ├── getNote.ts
+    ├── listByLabel.ts
+    ├── getTree.ts
+    └── saveNote.ts
 ```
+
+> `config/modules.config.ts` (Faza 2) już dostarcza `TriliumModuleConfig`. W Fazie 3 **nie** edytuj Faz 0/1. Istniejące szkice `types.ts` / `triliumClient.ts` / `validateClientConfig.ts` zastąp treścią z kroków poniżej (w tym pole `noteId` — ETAPI; nie `nodeId`).
 
 ---
 
-### Krok 3.1 — `types.ts` — branded types i interfejsy ETAPI
+### Krok 3.1 — `src/modules/trilium/types.ts` — **WYKONANY**
 
-Zdefiniuj:
+Kontrakt typów. `NoteId` jest branded — nie mylić z gołym `string`. Fabryka `noteId()` to jedyne miejsce z asercją brandu.
 
 ```ts
-// Branded type na NoteId — zapobiega myleniu zwykłego stringa z ID notatki
-type Brand<T, B extends string> = T & { readonly _brand: B };
-export type NoteId = Brand<string, 'NoteId'>;
+export type NoteId = string & { readonly __brand: "NoteId" };
 
-export function noteId(raw: string): NoteId {
-  return raw as NoteId;
+/** Jedyna asercja brandu: wejście już sprawdzone jako niepusty string. */
+export function noteId(value: string): NoteId {
+	if (value.length === 0) {
+		throw new Error("[trilium] Empty noteId");
+	}
+	return value as NoteId;
 }
 
-// M1: pełna lista typów notatek (OpenAPI create jest niepełny — obowiązuje ta lista)
-export type NoteType =
-  | 'text' | 'code' | 'file' | 'image' | 'search' | 'book' | 'relationMap' | 'render'
-  | 'noteMap' | 'mermaid' | 'canvas' | 'webView' | 'launcher' | 'doc'
-  | 'contentWidget' | 'mindMap' | 'spreadsheet' | 'llmChat';
+export const NOTE_TYPE_VALUES = [
+	"text",
+	"code",
+	"file",
+	"image",
+	"search",
+	"book",
+	"relationMap",
+	"canvas",
+	"mermaid",
+	"webView",
+	"render",
+	"geoMap",
+	"aiChat",
+] as const;
 
-// M2: atrybut notatki (label lub relation) — potrzebny w NoteMetadata.attributes
+export type NoteType = (typeof NOTE_TYPE_VALUES)[number];
+
+export const HIDDEN_NOTE_ID = noteId("_hidden");
+export const ROOT_NOTE_ID = noteId("root");
+
+/** Query searchSubtree — ten sam kontrakt co Postman Faza 1 (folder Tree). */
+export const SUBTREE_SEARCH_QUERY = "note.noteId != ''";
+
 export interface Attribute {
-  attributeId: string;
-  noteId: NoteId;
-  type: 'label' | 'relation';
-  name: string;
-  value: string;
-  position: number;
-  isInheritable: boolean;
-  utcDateModified: string; // readOnly
+	attributeId: string;
+	noteId: NoteId;
+	type: "label" | "relation";
+	name: string;
+	value: string;
+	position: number;
+	isInheritable: boolean;
 }
 
-// M2: pełny kształt Note z ETAPI (odpowiedź GET /etapi/notes/{noteId} i SearchResponse.results)
 export interface NoteMetadata {
-  noteId: NoteId;
-  title: string;            // chronione: "[protected]"
-  type: NoteType;
-  mime: string;
-  isProtected: boolean;     // M3: gdy true — title="[protected]", treść zwraca 400 NOTE_IS_PROTECTED
-  blobId: string;
-  attributes: Attribute[];
-  parentNoteIds: NoteId[];
-  childNoteIds: NoteId[];
-  parentBranchIds: string[];
-  childBranchIds: string[];
-  dateCreated: string;
-  dateModified: string;     // readOnly
-  utcDateCreated: string;
-  utcDateModified: string;  // readOnly
+	noteId: NoteId;
+	title: string;
+	type: NoteType;
+	mime: string;
+	isProtected: boolean;
+	blobId: string;
+	isDeleted: boolean;
+	dateCreated: string;
+	dateModified: string;
+	utcDateCreated: string;
+	utcDateModified: string;
+	parentNoteIds: NoteId[];
+	childNoteIds: NoteId[];
+	parentBranchIds: string[];
+	childBranchIds: string[];
+	attributes: Attribute[];
 }
 
-// M2: SearchResponse.results to pełne obiekty Note, nie okrojony podzbiór
 export interface SearchResponse {
-  results: NoteMetadata[];
-  debugInfo?: unknown;      // tylko gdy debug=true w query
+	results: NoteMetadata[];
+	debugInfo?: unknown;
 }
 
-// Wynik trilium_get_tree — zagnieżdżenie złożone po stronie modułu (ETAPI zwraca płaską listę)
-export interface NoteTreeNode {
-  noteId: NoteId;
-  title: string;
-  type: NoteType;
-  mime: string;
-  children: NoteTreeNode[];
+export interface AppInfo {
+	appVersion: string;
+	dbVersion: number;
 }
 
-// Konfiguracja przekazywana z modules.config.ts
-export interface TriliumClientConfig {
-  baseUrl: string;
-  apiToken: string;
+export interface BranchInfo {
+	branchId: string;
+	noteId: NoteId;
+	parentNoteId: NoteId;
 }
 
-export interface CreateNoteInput {
-  parentNoteId: NoteId;
-  title: string;
-  type: NoteType;
-  content: string;
-  mime?: string;
+export interface CreateNoteDef {
+	parentNoteId: NoteId;
+	title: string;
+	type: NoteType;
+	content: string;
+	mime?: string;
 }
 
 export interface CreateNoteResult {
-  note: NoteMetadata;
-  branch: { branchId: string; noteId: NoteId; parentNoteId: NoteId };
+	note: NoteMetadata;
+	branch: BranchInfo;
+}
+
+export interface NoteTreeNode {
+	noteId: NoteId;
+	title: string;
+	type: NoteType;
+	mime: string;
+	children: NoteTreeNode[];
+}
+
+export interface TriliumClientConfig {
+	baseUrl: string;
+	apiToken: string;
+}
+
+export interface TriliumModuleConfig {
+	baseUrl: string;
+	apiToken: string;
+}
+
+export interface PatchNoteFields {
+	title?: string;
+}
+
+/**
+ * Port klienta ETAPI — kształt dla tooli.
+ * Klasa `TriliumClient` w `lib/triliumClient.ts` musi ten kontrakt spełniać (bez `implements`, żeby nie zamykać cyklu importów).
+ */
+export interface TriliumClientPort {
+	getAppInfo(): Promise<AppInfo>;
+	getNoteMetadata(id: NoteId): Promise<NoteMetadata>;
+	getNoteContent(id: NoteId): Promise<string>;
+	searchNotes(query: string, limit?: number): Promise<NoteMetadata[]>;
+	searchSubtree(ancestorNoteId: NoteId): Promise<NoteMetadata[]>;
+	createNote(def: CreateNoteDef): Promise<CreateNoteResult>;
+	updateNoteContent(id: NoteId, content: string): Promise<void>;
+	patchNote(id: NoteId, fields: PatchNoteFields): Promise<NoteMetadata>;
+}
+
+export interface TriliumToolOptions {
+	namespace: string;
+	moduleId: string;
+	client: TriliumClientPort;
+}
+
+export function isNoteType(value: unknown): value is NoteType {
+	return typeof value === "string" && NOTE_TYPE_VALUES.some((item) => item === value);
 }
 ```
 
-**DoD:** Brak `any` w typach; `NoteId` niemożliwy do zbudowania poza fabryką `noteId()`.
+**DoD:** Plik kompiluje się w `strict`; `NoteId` nie jest przypisywalny z gołego `string` bez `noteId()`.
 
 ---
 
-### Krok 3.2 — `lib/triliumClient.ts` — klasa TriliumClient
+### Krok 3.2 — Parsery ETAPI, walidacja configu, `TriliumClient`
 
-> 📖 Endpointy opisane w [ETAPI Reference](https://docs.triliumnotes.org/user-guide/advanced-usage/etapi) i [API Reference](https://docs.triliumnotes.org/user-guide/advanced-usage/etapi/api-reference). (Link „Backend API" w poprzedniej wersji wskazywał na wewnętrzny scripting API — usunięty.)
+Trzy pliki. `fetch` / `JSON.parse` to granica FFI: wynik od razu do `unknown`, potem parser.
+
+#### `src/modules/trilium/lib/validateClientConfig.ts`
 
 ```ts
-import type { CreateNoteInput, CreateNoteResult, NoteId, NoteMetadata, SearchResponse, TriliumClientConfig } from '../types.js';
+import type { TriliumClientConfig } from "../types.js";
+
+export function validateClientConfig(config: TriliumClientConfig): void {
+	if (config.baseUrl.length === 0) {
+		throw new Error("[trilium] Missing baseUrl in module config");
+	}
+	if (config.apiToken.length === 0) {
+		throw new Error("[trilium] Missing apiToken in module config");
+	}
+}
+
+export function isRecord(value: unknown): value is Record<string, unknown> {
+	return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+export function readTriliumConfig(config: unknown): TriliumClientConfig | undefined {
+	if (!isRecord(config)) {
+		return undefined;
+	}
+	const { baseUrl, apiToken } = config;
+	if (typeof baseUrl !== "string" || typeof apiToken !== "string") {
+		return undefined;
+	}
+	return { baseUrl, apiToken };
+}
+```
+
+#### `src/modules/trilium/lib/parseEtapi.ts`
+
+```ts
+import {
+	isNoteType,
+	noteId,
+	type AppInfo,
+	type Attribute,
+	type BranchInfo,
+	type CreateNoteResult,
+	type NoteId,
+	type NoteMetadata,
+	type SearchResponse,
+} from "../types.js";
+import { isRecord } from "./validateClientConfig.js";
+
+export class TriliumEtapiError extends Error {
+	readonly httpStatus: number;
+	readonly code: string | undefined;
+
+	constructor(httpStatus: number, message: string, code?: string) {
+		super(message);
+		this.name = "TriliumEtapiError";
+		this.httpStatus = httpStatus;
+		this.code = code;
+	}
+}
+
+export function isProtectedEtapiError(error: unknown): boolean {
+	if (error instanceof TriliumEtapiError) {
+		if (error.code === "NOTE_IS_PROTECTED") {
+			return true;
+		}
+		return error.message.includes("NOTE_IS_PROTECTED");
+	}
+	if (error instanceof Error) {
+		return error.message.includes("NOTE_IS_PROTECTED");
+	}
+	return false;
+}
+
+export function toEtapiError(httpStatus: number, raw: unknown): TriliumEtapiError {
+	if (typeof raw === "string" && raw.length > 0) {
+		return new TriliumEtapiError(httpStatus, raw);
+	}
+	if (isRecord(raw)) {
+		const message =
+			typeof raw.message === "string" && raw.message.length > 0
+				? raw.message
+				: `ETAPI HTTP ${httpStatus}`;
+		const code = typeof raw.code === "string" ? raw.code : undefined;
+		return new TriliumEtapiError(httpStatus, message, code);
+	}
+	return new TriliumEtapiError(httpStatus, `ETAPI HTTP ${httpStatus}`);
+}
+
+function requireString(record: Record<string, unknown>, key: string): string {
+	const value = record[key];
+	if (typeof value !== "string") {
+		throw new Error(`[trilium] Expected string field "${key}"`);
+	}
+	return value;
+}
+
+function requireBoolean(record: Record<string, unknown>, key: string): boolean {
+	const value = record[key];
+	if (typeof value !== "boolean") {
+		throw new Error(`[trilium] Expected boolean field "${key}"`);
+	}
+	return value;
+}
+
+function parseNoteIdField(record: Record<string, unknown>, key: string): NoteId {
+	return noteId(requireString(record, key));
+}
+
+function parseNoteIdArray(value: unknown, field: string): NoteId[] {
+	if (!Array.isArray(value)) {
+		throw new Error(`[trilium] Expected string[] field "${field}"`);
+	}
+	return value.map((item, index) => {
+		if (typeof item !== "string" || item.length === 0) {
+			throw new Error(`[trilium] Invalid note id at ${field}[${index}]`);
+		}
+		return noteId(item);
+	});
+}
+
+function parseStringArray(value: unknown, field: string): string[] {
+	if (!Array.isArray(value)) {
+		throw new Error(`[trilium] Expected string[] field "${field}"`);
+	}
+	return value.map((item, index) => {
+		if (typeof item !== "string") {
+			throw new Error(`[trilium] Invalid string at ${field}[${index}]`);
+		}
+		return item;
+	});
+}
+
+function parseAttribute(value: unknown): Attribute {
+	if (!isRecord(value)) {
+		throw new Error("[trilium] Invalid attribute object");
+	}
+	const typeRaw = value.type;
+	if (typeRaw !== "label" && typeRaw !== "relation") {
+		throw new Error("[trilium] Invalid attribute.type");
+	}
+	const position = value.position;
+	if (typeof position !== "number") {
+		throw new Error("[trilium] Invalid attribute.position");
+	}
+	return {
+		attributeId: requireString(value, "attributeId"),
+		noteId: parseNoteIdField(value, "noteId"),
+		type: typeRaw,
+		name: requireString(value, "name"),
+		value: typeof value.value === "string" ? value.value : "",
+		position,
+		isInheritable: requireBoolean(value, "isInheritable"),
+	};
+}
+
+function parseAttributes(value: unknown): Attribute[] {
+	if (value === undefined) {
+		return [];
+	}
+	if (!Array.isArray(value)) {
+		throw new Error("[trilium] Expected attributes array");
+	}
+	return value.map(parseAttribute);
+}
+
+export function parseNoteMetadata(raw: unknown): NoteMetadata {
+	if (!isRecord(raw)) {
+		throw new Error("[trilium] Note metadata is not an object");
+	}
+	const typeRaw = raw.type;
+	if (!isNoteType(typeRaw)) {
+		throw new Error("[trilium] Unknown or missing note.type");
+	}
+	return {
+		noteId: parseNoteIdField(raw, "noteId"),
+		title: requireString(raw, "title"),
+		type: typeRaw,
+		mime: requireString(raw, "mime"),
+		isProtected: requireBoolean(raw, "isProtected"),
+		blobId: requireString(raw, "blobId"),
+		isDeleted: requireBoolean(raw, "isDeleted"),
+		dateCreated: requireString(raw, "dateCreated"),
+		dateModified: requireString(raw, "dateModified"),
+		utcDateCreated: requireString(raw, "utcDateCreated"),
+		utcDateModified: requireString(raw, "utcDateModified"),
+		parentNoteIds: parseNoteIdArray(raw.parentNoteIds, "parentNoteIds"),
+		childNoteIds: parseNoteIdArray(raw.childNoteIds, "childNoteIds"),
+		parentBranchIds: parseStringArray(raw.parentBranchIds, "parentBranchIds"),
+		childBranchIds: parseStringArray(raw.childBranchIds, "childBranchIds"),
+		attributes: parseAttributes(raw.attributes),
+	};
+}
+
+export function parseSearchResponse(raw: unknown): SearchResponse {
+	if (!isRecord(raw)) {
+		throw new Error("[trilium] Search response is not an object");
+	}
+	const resultsRaw = raw.results;
+	if (!Array.isArray(resultsRaw)) {
+		throw new Error("[trilium] Search response.results is not an array");
+	}
+	const parsed: SearchResponse = {
+		results: resultsRaw.map(parseNoteMetadata),
+	};
+	if ("debugInfo" in raw) {
+		parsed.debugInfo = raw.debugInfo;
+	}
+	return parsed;
+}
+
+export function parseAppInfo(raw: unknown): AppInfo {
+	if (!isRecord(raw)) {
+		throw new Error("[trilium] App info is not an object");
+	}
+	const appVersion = raw.appVersion;
+	const dbVersion = raw.dbVersion;
+	if (typeof appVersion !== "string" || typeof dbVersion !== "number") {
+		throw new Error("[trilium] Invalid app-info shape");
+	}
+	return { appVersion, dbVersion };
+}
+
+function parseBranchInfo(raw: unknown): BranchInfo {
+	if (!isRecord(raw)) {
+		throw new Error("[trilium] Branch is not an object");
+	}
+	return {
+		branchId: requireString(raw, "branchId"),
+		noteId: parseNoteIdField(raw, "noteId"),
+		parentNoteId: parseNoteIdField(raw, "parentNoteId"),
+	};
+}
+
+export function parseCreateNoteResult(raw: unknown): CreateNoteResult {
+	if (!isRecord(raw)) {
+		throw new Error("[trilium] Create-note response is not an object");
+	}
+	return {
+		note: parseNoteMetadata(raw.note),
+		branch: parseBranchInfo(raw.branch),
+	};
+}
+
+export function parseJsonBody(text: string): unknown {
+	if (text.length === 0) {
+		return undefined;
+	}
+	try {
+		const parsed: unknown = JSON.parse(text);
+		return parsed;
+	} catch {
+		return text;
+	}
+}
+```
+
+#### `src/modules/trilium/lib/buildNoteTree.ts`
+
+Składanie drzewa z płaskiego `SearchResponse.results`. Brakujące ID z `childNoteIds` (np. dzieci `_hidden` poza wynikiem search) są pomijane. `depth` liczy poziomy dzieci od `ancestor` (1 = tylko bezpośrednie dzieci).
+
+```ts
+import {
+	HIDDEN_NOTE_ID,
+	type NoteId,
+	type NoteMetadata,
+	type NoteTreeNode,
+} from "../types.js";
+
+function isHidden(id: NoteId): boolean {
+	return id === HIDDEN_NOTE_ID;
+}
+
+function walk(
+	id: NoteId,
+	remaining: number,
+	byId: ReadonlyMap<string, NoteMetadata>,
+	excludeHidden: boolean,
+): NoteTreeNode | undefined {
+	if (excludeHidden && isHidden(id)) {
+		return undefined;
+	}
+	const meta = byId.get(id);
+	if (meta === undefined) {
+		return undefined;
+	}
+	const children: NoteTreeNode[] = [];
+	if (remaining > 0) {
+		for (const childId of meta.childNoteIds) {
+			const child = walk(childId, remaining - 1, byId, excludeHidden);
+			if (child !== undefined) {
+				children.push(child);
+			}
+		}
+	}
+	return {
+		noteId: meta.noteId,
+		title: meta.title,
+		type: meta.type,
+		mime: meta.mime,
+		children,
+	};
+}
+
+export function buildNoteTree(
+	flat: readonly NoteMetadata[],
+	ancestor: NoteId,
+	depth: number,
+	excludeHidden: boolean,
+): NoteTreeNode {
+	const byId = new Map<string, NoteMetadata>();
+	for (const note of flat) {
+		byId.set(note.noteId, note);
+	}
+
+	const rooted = walk(ancestor, depth, byId, excludeHidden);
+	if (rooted !== undefined) {
+		return rooted;
+	}
+
+	const children: NoteTreeNode[] = [];
+	if (depth >= 1) {
+		for (const note of flat) {
+			if (excludeHidden && isHidden(note.noteId)) {
+				continue;
+			}
+			if (!note.parentNoteIds.includes(ancestor)) {
+				continue;
+			}
+			const child = walk(note.noteId, depth - 1, byId, excludeHidden);
+			if (child !== undefined) {
+				children.push(child);
+			}
+		}
+	}
+
+	return {
+		noteId: ancestor,
+		title: ancestor,
+		type: "text",
+		mime: "text/html",
+		children,
+	};
+}
+```
+
+#### `src/modules/trilium/lib/triliumClient.ts`
+
+`requestJson` — JSON in/out. `getNoteContent` / `updateNoteContent` — osobny fetch (`text/plain` przy PUT, Faza 1.8). `searchSubtree` = ten sam URL co request Postman w folderze Tree/children.
+
+```ts
+import type {
+	AppInfo,
+	CreateNoteDef,
+	CreateNoteResult,
+	NoteId,
+	NoteMetadata,
+	PatchNoteFields,
+	TriliumClientConfig,
+} from "../types.js";
+import { SUBTREE_SEARCH_QUERY } from "../types.js";
+import { validateClientConfig } from "./validateClientConfig.js";
+import {
+	parseAppInfo,
+	parseCreateNoteResult,
+	parseJsonBody,
+	parseNoteMetadata,
+	parseSearchResponse,
+	toEtapiError,
+} from "./parseEtapi.js";
+
+interface AuthHeaders {
+	Authorization: string;
+	Accept: string;
+	"Content-Type": string;
+}
 
 export class TriliumClient {
-  private readonly baseUrl: string;
-  private readonly headers: Record<string, string>;
+	private readonly baseUrl: string;
+	private readonly headers: AuthHeaders;
 
-  constructor(config: TriliumClientConfig) {
-    if (!config.baseUrl) throw new Error('[TriliumClient] baseUrl is required');
-    if (!config.apiToken) throw new Error('[TriliumClient] apiToken is required');
-    this.baseUrl = config.baseUrl.replace(/\/$/, '');
-    this.headers = {
-      Authorization: config.apiToken,   // ETAPI: bez prefiksu "Bearer"
-      'Content-Type': 'application/json',
-    };
-  }
+	constructor(config: TriliumClientConfig) {
+		validateClientConfig(config);
+		this.baseUrl = config.baseUrl.replace(/\/$/, "");
+		this.headers = {
+			Authorization: config.apiToken,
+			Accept: "application/json",
+			"Content-Type": "application/json",
+		};
+	}
 
-  // Metody publiczne do implementacji:
-  async getAppInfo(): Promise<{ appVersion: string; dbVersion: number }>;
-  async getNoteMetadata(id: NoteId): Promise<NoteMetadata>;
-  async getNoteContent(id: NoteId): Promise<string>;
-  async searchNotes(query: string, limit?: number): Promise<NoteMetadata[]>;
-  /** Poddrzewo: GET /etapi/notes?search=note.noteId != ''&ancestorNoteId= */
-  async searchSubtree(ancestorNoteId: NoteId): Promise<NoteMetadata[]>;
-  async createNote(input: CreateNoteInput): Promise<CreateNoteResult>;
-  async updateNoteContent(id: NoteId, content: string): Promise<void>;
-  async patchNote(id: NoteId, patch: { title?: string }): Promise<NoteMetadata>;
+	private async requestJson<T>(
+		path: string,
+		parse: (raw: unknown) => T,
+		init?: RequestInit,
+	): Promise<T> {
+		const response = await fetch(`${this.baseUrl}${path}`, {
+			...init,
+			headers: {
+				...this.headers,
+				...init?.headers,
+			},
+		});
+		const raw = parseJsonBody(await response.text());
+		if (!response.ok) {
+			throw toEtapiError(response.status, raw);
+		}
+		return parse(raw);
+	}
 
-  // Metoda prywatna — wspólna obsługa fetch + błędów HTTP (JSON)
-  private async request<T>(path: string, init?: RequestInit): Promise<T>;
+	async getAppInfo(): Promise<AppInfo> {
+		return this.requestJson("/etapi/app-info", parseAppInfo);
+	}
+
+	async getNoteMetadata(id: NoteId): Promise<NoteMetadata> {
+		return this.requestJson(`/etapi/notes/${id}`, parseNoteMetadata);
+	}
+
+	async getNoteContent(id: NoteId): Promise<string> {
+		const response = await fetch(`${this.baseUrl}/etapi/notes/${id}/content`, {
+			headers: {
+				Authorization: this.headers.Authorization,
+				Accept: "*/*",
+			},
+		});
+		const text = await response.text();
+		if (!response.ok) {
+			throw toEtapiError(response.status, parseJsonBody(text));
+		}
+		return text;
+	}
+
+	async searchNotes(query: string, limit = 20): Promise<NoteMetadata[]> {
+		const params = new URLSearchParams();
+		params.set("search", query);
+		params.set("limit", String(limit));
+		const parsed = await this.requestJson(
+			`/etapi/notes?${params.toString()}`,
+			parseSearchResponse,
+		);
+		return parsed.results;
+	}
+
+	async searchSubtree(ancestorNoteId: NoteId): Promise<NoteMetadata[]> {
+		const params = new URLSearchParams();
+		params.set("search", SUBTREE_SEARCH_QUERY);
+		params.set("ancestorNoteId", ancestorNoteId);
+		const parsed = await this.requestJson(
+			`/etapi/notes?${params.toString()}`,
+			parseSearchResponse,
+		);
+		return parsed.results;
+	}
+
+	async createNote(def: CreateNoteDef): Promise<CreateNoteResult> {
+		const body: Record<string, string> = {
+			parentNoteId: def.parentNoteId,
+			title: def.title,
+			type: def.type,
+			content: def.content,
+		};
+		if (def.mime !== undefined) {
+			body.mime = def.mime;
+		}
+		return this.requestJson("/etapi/create-note", parseCreateNoteResult, {
+			method: "POST",
+			body: JSON.stringify(body),
+		});
+	}
+
+	async updateNoteContent(id: NoteId, content: string): Promise<void> {
+		const response = await fetch(`${this.baseUrl}/etapi/notes/${id}/content`, {
+			method: "PUT",
+			headers: {
+				Authorization: this.headers.Authorization,
+				"Content-Type": "text/plain",
+			},
+			body: content,
+		});
+		if (!response.ok) {
+			const raw = parseJsonBody(await response.text());
+			throw toEtapiError(response.status, raw);
+		}
+	}
+
+	async patchNote(id: NoteId, fields: PatchNoteFields): Promise<NoteMetadata> {
+		return this.requestJson(`/etapi/notes/${id}`, parseNoteMetadata, {
+			method: "PATCH",
+			body: JSON.stringify(fields),
+		});
+	}
 }
 ```
 
-**Szczegóły implementacji:**
-
-- `request<T>()` wykonuje `fetch(this.baseUrl + path, { headers: this.headers })`:
-  - Jeśli `response.ok === false` — rzuca `Error` z kodem HTTP i tekstem błędu z body.
-  - Zwraca `response.json() as Promise<T>`.
-- `getNoteContent()` używa `response.text()` zamiast `json()` (treść to HTML/plain).
-- `searchNotes(query, limit)` → `GET /etapi/notes?search=…` (opcjonalnie `&limit=`); body `SearchResponse`, zwraca `results` (`NoteMetadata[]`). Używane przez `trilium_list_by_label`.
-- `searchSubtree(ancestorNoteId)` → `GET /etapi/notes?search=${encodeURIComponent("note.noteId != ''")}&ancestorNoteId=${ancestorNoteId}`. Body: `SearchResponse`; metoda zwraca `results`. Ten sam endpoint co request Postman **1.6 Tree / children → hierarchia**.
-- `createNote()` → `POST /etapi/create-note`, body JSON, oczekiwany status `201`.
-- `updateNoteContent()` → `PUT /etapi/notes/{id}/content`, body surowy string, nagłówek `Content-Type: text/plain` (nie JSON); oczekiwany status `204`.
-- `patchNote()` → `PATCH /etapi/notes/{id}`, body JSON `{ title }` gdy agent zmienia tylko tytuł.
-- Brak retry / cache na tym etapie — to v1 modułu.
-
-**DoD:** `TriliumClient` importowany w toolsach bez błędów typowania; `tsc --noEmit` zielony.
+**DoD:** `searchSubtree` koduje `search=note.noteId != ''` i `ancestorNoteId`; PUT content używa `text/plain`; żaden parser nie rzutuje JSON na typ bez sprawdzenia pól.
 
 ---
 
-### Krok 3.3 — `lib/toolResponse.ts` — helpery odpowiedzi
+### Krok 3.3 — `src/modules/trilium/lib/toolResponse.ts`
 
-Powiel i dostosuj wzorzec z `src/modules/portfolio/lib/toolResponse.ts`:
+Ten sam kształt odpowiedzi co `src/modules/portfolio/lib/toolResponse.ts`. `toolOk` to alias `toolJson` używany w toolach Trilium.
 
 ```ts
-// Zwraca sukces w formacie MCP (text/plain lub JSON stringified)
-export function toolOk(data: unknown): ToolResult;
+export function toolJson(data: unknown) {
+	return {
+		content: [{ type: "text" as const, text: JSON.stringify(data, null, 2) }],
+	};
+}
 
-// Zwraca błąd z isError: true i czytelnym komunikatem
-export function toolError(label: string, err: unknown): ToolResult;
+export function toolOk(data: unknown) {
+	return toolJson(data);
+}
+
+export function toolError(context: string, error: unknown) {
+	const detail = error instanceof Error ? error.message : String(error);
+	return {
+		content: [{ type: "text" as const, text: `${context}: ${detail}` }],
+		isError: true as const,
+	};
+}
 ```
 
-**Uwaga:** Możesz wydzielić `toolResponse.ts` jako współdzielony helper w `src/core/` jeśli chcesz unikać duplikacji. Na potrzeby tej integracji kopiowanie wzorca jest w pełni akceptowalne — moduły są izolowane.
+**DoD:** Błąd toola ma `isError: true` (metryki `registerInstrumentedTool` liczą to jako `error`).
 
 ---
 
-### Krok 3.4 — `tools/getNote.ts` — tool `trilium_get_note`
+### Krok 3.4 — `src/modules/trilium/tools/getNote.ts`
 
-**Inputy:**
-- `noteId: z.string().min(1)` — ID notatki w Trilium
-- `includeContent: z.boolean().optional()` — czy pobrać treść (domyślnie `false`)
+Tool: `{namespace}_get_note`. Chroniona notatka (`isProtected` albo `NOTE_IS_PROTECTED` z ETAPI) → `toolError`, bez treści.
 
-**Logika:**
-1. `client.getNoteMetadata(noteId)` — zawsze.
-2. Jeśli `metadata.isProtected === true` → natychmiast zwróć `toolError('[trilium_get_note] Note is protected', 'NOTE_IS_PROTECTED')` (M3: nie próbuj pobierać treści chronionej notatki).
-3. Jeśli `includeContent === true` → `client.getNoteContent(noteId)`.
-4. Zwróć `toolOk({ metadata, content? })`.
-5. `catch` → jeśli błąd zawiera kod `NOTE_IS_PROTECTED` → `toolError('[trilium_get_note] Note is protected', err)`, w przeciwnym razie `toolError('[trilium_get_note] Error', err)`.
-
-**Annotations MCP:**
 ```ts
-annotations: { readOnlyHint: true, destructiveHint: false }
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { registerInstrumentedTool } from "../../../observability/instrumentTool.js";
+import { noteId, type TriliumToolOptions } from "../types.js";
+import { isProtectedEtapiError } from "../lib/parseEtapi.js";
+import { toolError, toolOk } from "../lib/toolResponse.js";
+
+export function registerGetNoteTools(
+	server: McpServer,
+	options: TriliumToolOptions,
+): void {
+	const toolName = `${options.namespace}_get_note`;
+	const { client } = options;
+
+	registerInstrumentedTool(
+		server,
+		options.moduleId,
+		toolName,
+		{
+			description: `[${options.namespace}] Pobiera metadane notatki Trilium po noteId; opcjonalnie treść. Chronione notatki zwracają błąd bez odczytu treści.`,
+			inputSchema: {
+				noteId: z.string().min(1).describe("ID notatki w Trilium"),
+				includeContent: z
+					.boolean()
+					.optional()
+					.describe("Czy dołączyć treść (domyślnie false)"),
+			},
+			annotations: { readOnlyHint: true, destructiveHint: false },
+		},
+		async (args: { noteId: string; includeContent?: boolean }) => {
+			try {
+				const id = noteId(args.noteId);
+				const metadata = await client.getNoteMetadata(id);
+				if (metadata.isProtected) {
+					return toolError(
+						`[${toolName}] Note is protected`,
+						"NOTE_IS_PROTECTED",
+					);
+				}
+				if (args.includeContent === true) {
+					const content = await client.getNoteContent(id);
+					return toolOk({ metadata, content });
+				}
+				return toolOk({ metadata });
+			} catch (error) {
+				if (isProtectedEtapiError(error)) {
+					return toolError(`[${toolName}] Note is protected`, error);
+				}
+				return toolError(`[${toolName}] Error`, error);
+			}
+		},
+	);
+}
 ```
 
+**DoD:** `includeContent !== true` nie woła `getNoteContent`. `isProtected` nie wycieka treści.
+
 ---
 
-### Krok 3.5 — `tools/listByLabel.ts` — tool `trilium_list_by_label`
+### Krok 3.5 — `src/modules/trilium/tools/listByLabel.ts`
 
-**Inputy:**
-- `label: z.string().min(1)` — nazwa labeli (np. `type`, `category`)
-- `value: z.string().optional()` — oczekiwana wartość labeli
-- `limit: z.number().int().min(1).max(100).optional()` — domyślnie `20`
+Search ETAPI: `#label` albo `#label=value`. Limit 1–50, domyślnie 20.
 
-**Logika:**
-1. Zbuduj query Trilium: `value` zdefiniowany → `#${label}=${value}`, bez value → `#${label}`.
-2. `client.searchNotes(query, limit)`.
-3. Zwróć `toolOk({ query, count: results.length, results })`.
-4. `catch` → `toolError('[trilium_list_by_label] Error', err)`.
-
-**Annotations MCP:**
 ```ts
-annotations: { readOnlyHint: true, destructiveHint: false }
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { registerInstrumentedTool } from "../../../observability/instrumentTool.js";
+import type { TriliumToolOptions } from "../types.js";
+import { toolError, toolOk } from "../lib/toolResponse.js";
+
+function buildLabelQuery(label: string, value: string | undefined): string {
+	if (value === undefined || value.length === 0) {
+		return `#${label}`;
+	}
+	return `#${label}=${value}`;
+}
+
+export function registerListByLabelTools(
+	server: McpServer,
+	options: TriliumToolOptions,
+): void {
+	const toolName = `${options.namespace}_list_by_label`;
+	const { client } = options;
+
+	registerInstrumentedTool(
+		server,
+		options.moduleId,
+		toolName,
+		{
+			description: `[${options.namespace}] Lista notatek z daną labelką ETAPI (#label lub #label=value).`,
+			inputSchema: {
+				label: z.string().min(1).describe("Nazwa labelki bez prefiksu #"),
+				value: z.string().optional().describe("Opcjonalna wartość labelki"),
+				limit: z
+					.number()
+					.int()
+					.min(1)
+					.max(50)
+					.optional()
+					.describe("Maks. liczba wyników (domyślnie 20, max 50)"),
+			},
+			annotations: { readOnlyHint: true, destructiveHint: false },
+		},
+		async (args: { label: string; value?: string; limit?: number }) => {
+			try {
+				const query = buildLabelQuery(args.label, args.value);
+				const notes = await client.searchNotes(query, args.limit ?? 20);
+				return toolOk({
+					query,
+					count: notes.length,
+					notes: notes.map((note) => ({
+						noteId: note.noteId,
+						title: note.title,
+						type: note.type,
+					})),
+				});
+			} catch (error) {
+				return toolError(`[${toolName}] Error`, error);
+			}
+		},
+	);
+}
 ```
 
+**DoD:** Query wychodzi jako `#category` albo `#category=test`; odpowiedź to skrócone `{ noteId, title, type }[]`.
+
 ---
 
-### Krok 3.6 — `tools/getTree.ts` — tool `trilium_get_tree`
+### Krok 3.6 — `src/modules/trilium/tools/getTree.ts`
 
-Refaktor względem: Faza 1 / Krok 1.6 (WYKONANY w ramach fazy). Pierwotny wariant (iteracja `GET /etapi/notes/{id}` po `childNoteIds`, ewentualnie `/children`) **nie obowiązuje**. Na żywej instancji `GET /etapi/notes/root/children` zwraca `Router not found`. Kontrakt toola: **jedno** wyszukiwanie poddrzewa i złożenie hierarchii z pól topologii.
+Decyzja (Faza 1.6 żywa: **brak** `GET /etapi/notes/{id}/children` — 4xx `Router not found`). Hierarchia: `searchSubtree` + `buildNoteTree`. Domyślnie `parentNoteId=root`, `depth=1`, `excludeHidden=true`.
 
-**Endpoint:** `GET /etapi/notes?search=note.noteId != ''&ancestorNoteId={parentNoteId}`  
-(`search` jest obowiązkowe w ETAPI — warunek „dowolne noteId”; hierarchii nie koduje query, tylko `ancestorNoteId` + `parentNoteIds` / `childNoteIds` w `results`). Kolekcja Postman: folder **1.6 Tree / children** → request hierarchii.
-
-**Inputy:**
-- `parentNoteId: z.string().optional()` — domyślnie `'root'`
-- `depth: z.number().int().min(1).max(3).optional()` — domyślnie `1` (ile poziomów **w dół od rodzica** w złożonym drzewie; search i tak zwraca całe poddrzewo, przycinanie jest po stronie toola)
-- `excludeHidden: z.boolean().optional()` — domyślnie `true` — nie wchodź do notatki `_hidden` (systemowy folder Hidden Notes)
-
-**Logika:**
-1. `ancestor = noteId(parentNoteId ?? 'root')`.
-2. `flat = await client.searchSubtree(ancestor)` — płaska `NoteMetadata[]` (bez treści notatek).
-3. Mapa `noteId → NoteMetadata`. Złóż `NoteTreeNode` startując od `ancestor`: dzieci = `childNoteIds` obecne w mapie; rekurencja aż `depth`; ID spoza `results` pomiń (na żywej odpowiedzi `_hidden` wymienia dzieci, których nie ma w `results`).
-4. Gdy `excludeHidden === true`, nie dodawaj węzła `_hidden` ani jego potomków.
-5. Zwróć `toolOk({ parentNoteId: ancestor, depth, tree: NoteTreeNode })` — **zagnieżdżone** `children`, nie płaska lista.
-6. `catch` → `toolError('[trilium_get_tree] Error', err)`.
-
-**DoD odpowiedzi:** dla `parentNoteId=root` i wystarczającego `depth` widać wnuki (np. `MCP save test` → `child test note`), czego sam `GET /etapi/notes/root` nie pokazuje.
-
-**Ograniczenia w `description` toola:** ETAPI nie zwraca zagnieżdżonego JSON-a; tree jest złożone w module. Search nie gwarantuje kompletności względem `childNoteIds`. Duże poddrzewa — trzymaj `depth` nisko.
-
-**Annotations MCP:**
 ```ts
-annotations: { readOnlyHint: true, destructiveHint: false }
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { registerInstrumentedTool } from "../../../observability/instrumentTool.js";
+import { noteId, ROOT_NOTE_ID, type TriliumToolOptions } from "../types.js";
+import { buildNoteTree } from "../lib/buildNoteTree.js";
+import { toolError, toolOk } from "../lib/toolResponse.js";
+
+export function registerGetTreeTools(
+	server: McpServer,
+	options: TriliumToolOptions,
+): void {
+	const toolName = `${options.namespace}_get_tree`;
+	const { client } = options;
+
+	registerInstrumentedTool(
+		server,
+		options.moduleId,
+		toolName,
+		{
+			description: `[${options.namespace}] Zagnieżdżone drzewo notatek: GET /etapi/notes?search=note.noteId != ''&ancestorNoteId={parent}, składane z parentNoteIds/childNoteIds.`,
+			inputSchema: {
+				parentNoteId: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Korzeń poddrzewa (domyślnie root)"),
+				depth: z
+					.number()
+					.int()
+					.min(1)
+					.max(3)
+					.optional()
+					.describe("Głębokość dzieci od korzenia (domyślnie 1, max 3)"),
+				excludeHidden: z
+					.boolean()
+					.optional()
+					.describe("Pomiń notatkę _hidden (domyślnie true)"),
+			},
+			annotations: { readOnlyHint: true, destructiveHint: false },
+		},
+		async (args: {
+			parentNoteId?: string;
+			depth?: number;
+			excludeHidden?: boolean;
+		}) => {
+			try {
+				const ancestor =
+					args.parentNoteId !== undefined
+						? noteId(args.parentNoteId)
+						: ROOT_NOTE_ID;
+				const depth = args.depth ?? 1;
+				const excludeHidden = args.excludeHidden !== false;
+				const flat = await client.searchSubtree(ancestor);
+				const tree = buildNoteTree(flat, ancestor, depth, excludeHidden);
+				return toolOk({
+					parentNoteId: ancestor,
+					depth,
+					excludeHidden,
+					tree,
+				});
+			} catch (error) {
+				return toolError(`[${toolName}] Error`, error);
+			}
+		},
+	);
+}
 ```
 
+**DoD:** Jedno wywołanie `searchSubtree` na request; brak N+1 po `childNoteIds`; `_hidden` wycinane gdy `excludeHidden`.
+
 ---
 
-### Krok 3.7 — `tools/saveNote.ts` — tool `trilium_save_note`
+### Krok 3.7 — `src/modules/trilium/tools/saveNote.ts`
 
-Narzędzie zapisu (create lub update). Semantyka upsert:
+Upsert: `noteId` → PATCH tytułu (jeśli podany) + PUT treści (jeśli podana). Bez `noteId` → `POST /etapi/create-note` (`parentNoteId` + `title` + `content` wymagane). `mime` tylko gdy `type` to `code` / `file` / `image`.
 
-| `noteId` | Zachowanie |
-|----------|------------|
-| podany | aktualizacja istniejącej notatki (`PUT /content`; opcjonalnie `PATCH` tytułu) |
-| brak | utworzenie nowej (`POST /etapi/create-note`) |
-
-**Inputy:**
-- `noteId: z.string().min(1).optional()` — ID notatki do nadpisania; brak = create
-- `parentNoteId: z.string().min(1).optional()` — rodzic w drzewie; **wymagany przy create**, ignorowany przy update treści
-- `title: z.string().min(1).optional()` — wymagany przy create; przy update opcjonalna zmiana tytułu
-- `content: z.string().optional()` — treść notatki; wymagany przy create; przy update — jeśli podany, nadpisuje treść
-- `type: z.enum(['text', 'code', 'file', 'image', 'search', 'book', 'relationMap', 'render', 'noteMap', 'mermaid', 'canvas', 'webView', 'launcher', 'doc', 'contentWidget', 'mindMap', 'spreadsheet', 'llmChat']).optional()` — domyślnie `'text'` (tylko create)
-- `mime: z.string().optional()` — tylko gdy `type` to `code` / `file` / `image`
-
-**Walidacja w handlerze (zanim fetch):**
-1. Create (`noteId` brak): `parentNoteId`, `title` i `content` muszą być niepuste → inaczej `toolError` z czytelnym komunikatem (bez wywołania ETAPI).
-2. Update (`noteId` podany): co najmniej jedno z `content` / `title` musi być podane.
-
-**Logika create:**
-1. `client.createNote({ parentNoteId, title, type: type ?? 'text', content, mime })`.
-2. Zwróć `toolOk({ action: 'created', note, branch })`.
-
-**Logika update:**
-1. Jeśli `content` podane → `client.updateNoteContent(noteId, content)`.
-2. Jeśli `title` podane → `client.patchNote(noteId, { title })`.
-3. Zwróć `toolOk({ action: 'updated', noteId, updated: { content: boolean, title: boolean } })`.
-4. `catch` → jeśli błąd zawiera kod `NOTE_IS_PROTECTED` → `toolError('[trilium_save_note] Note is protected — cannot modify', err)`, w przeciwnym razie `toolError('[trilium_save_note] Error', err)`. (M3)
-
-**Annotations MCP** (mutujące, niekasujące):
 ```ts
-annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: false }
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import { z } from "zod";
+import { registerInstrumentedTool } from "../../../observability/instrumentTool.js";
+import {
+	NOTE_TYPE_VALUES,
+	noteId,
+	type CreateNoteDef,
+	type NoteType,
+	type TriliumToolOptions,
+} from "../types.js";
+import { toolError, toolOk } from "../lib/toolResponse.js";
+
+const MIME_REQUIRED_TYPES = new Set<NoteType>(["code", "file", "image"]);
+
+const noteTypeSchema = z.enum(NOTE_TYPE_VALUES);
+
+function mimeForCreate(type: NoteType, mime: string | undefined): string | undefined {
+	if (mime !== undefined && mime.length > 0) {
+		return mime;
+	}
+	if (MIME_REQUIRED_TYPES.has(type)) {
+		throw new Error(
+			`mime is required when type is ${type} (code / file / image)`,
+		);
+	}
+	return undefined;
+}
+
+export function registerSaveNoteTools(
+	server: McpServer,
+	options: TriliumToolOptions,
+): void {
+	const toolName = `${options.namespace}_save_note`;
+	const { client } = options;
+
+	registerInstrumentedTool(
+		server,
+		options.moduleId,
+		toolName,
+		{
+			description: `[${options.namespace}] Zapis notatki: bez noteId — create (parentNoteId+title+content); z noteId — update tytułu i/lub treści.`,
+			inputSchema: {
+				noteId: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Istniejące ID — tryb aktualizacji"),
+				parentNoteId: z
+					.string()
+					.min(1)
+					.optional()
+					.describe("Rodzic przy tworzeniu (wymagany bez noteId)"),
+				title: z.string().min(1).optional().describe("Tytuł notatki"),
+				type: noteTypeSchema
+					.optional()
+					.describe("Typ przy tworzeniu (domyślnie text)"),
+				mime: z
+					.string()
+					.optional()
+					.describe("Wymagane przy type code / file / image"),
+				content: z.string().optional().describe("Treść (HTML lub plain)"),
+			},
+			annotations: { readOnlyHint: false, destructiveHint: false },
+		},
+		async (args: {
+			noteId?: string;
+			parentNoteId?: string;
+			title?: string;
+			type?: NoteType;
+			mime?: string;
+			content?: string;
+		}) => {
+			try {
+				if (args.noteId !== undefined) {
+					const id = noteId(args.noteId);
+					if (args.title !== undefined) {
+						await client.patchNote(id, { title: args.title });
+					}
+					if (args.content !== undefined) {
+						await client.updateNoteContent(id, args.content);
+					}
+					if (args.title === undefined && args.content === undefined) {
+						return toolError(
+							`[${toolName}] Invalid update`,
+							"Provide title and/or content when noteId is set",
+						);
+					}
+					const metadata = await client.getNoteMetadata(id);
+					return toolOk({ action: "updated", noteId: id, metadata });
+				}
+
+				if (
+					args.parentNoteId === undefined ||
+					args.title === undefined ||
+					args.content === undefined
+				) {
+					return toolError(
+						`[${toolName}] Invalid create`,
+						"parentNoteId, title and content are required when noteId is omitted",
+					);
+				}
+
+				const type: NoteType = args.type ?? "text";
+				const def: CreateNoteDef = {
+					parentNoteId: noteId(args.parentNoteId),
+					title: args.title,
+					type,
+					content: args.content,
+				};
+				const mime = mimeForCreate(type, args.mime);
+				if (mime !== undefined) {
+					def.mime = mime;
+				}
+				const created = await client.createNote(def);
+				return toolOk({
+					action: "created",
+					noteId: created.note.noteId,
+					note: created.note,
+					branch: created.branch,
+				});
+			} catch (error) {
+				return toolError(`[${toolName}] Error`, error);
+			}
+		},
+	);
+}
 ```
 
-`idempotentHint: false` — create zawsze tworzy nową notatkę; powtórne wywołanie bez `noteId` nie jest idempotentne.
+**DoD:** Create zwraca `action: "created"` i `noteId`; update nie woła `create-note`; PUT treści idzie przez `updateNoteContent` (`text/plain`).
 
 ---
 
-### Krok 3.8 — `index.ts` — entry point modułu
+### Krok 3.8 — `src/modules/trilium/index.ts`
+
+Rejestracja jak portfolio: `namespace` + `moduleId` + `options.config`. Health: `GET /etapi/app-info`.
 
 ```ts
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { ModuleOptions } from '../../core/types.js';
-import type { TriliumModuleConfig } from '../../../config/modules.config.js';
-import type { HealthCheck, ModuleHealthChecker } from '../../core/types.js';
-import { TriliumClient } from './lib/triliumClient.js';
-import { registerGetNoteTools } from './tools/getNote.js';
-import { registerListByLabelTools } from './tools/listByLabel.js';
-import { registerGetTreeTools } from './tools/getTree.js';
-import { registerSaveNoteTools } from './tools/saveNote.js';
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { HealthCheck, ModuleHealthChecker, ModuleOptions } from "../../core/types.js";
+import { TriliumClient } from "./lib/triliumClient.js";
+import { readTriliumConfig } from "./lib/validateClientConfig.js";
+import { registerGetNoteTools } from "./tools/getNote.js";
+import { registerGetTreeTools } from "./tools/getTree.js";
+import { registerListByLabelTools } from "./tools/listByLabel.js";
+import { registerSaveNoteTools } from "./tools/saveNote.js";
+import type { TriliumToolOptions } from "./types.js";
 
 export async function register(server: McpServer, options: ModuleOptions = {}) {
-  const namespace = options.namespace ?? 'trilium';
-  const moduleId = options.moduleId ?? 'trilium';
-  const cfg = options.config as TriliumModuleConfig | undefined;
+	const namespace = options.namespace || "trilium";
+	const moduleId = options.moduleId ?? "trilium";
+	const cfg = readTriliumConfig(options.config);
+	if (cfg === undefined) {
+		throw new Error(
+			"[trilium] No config.baseUrl/apiToken. Check trilium entry in modules.config.ts.",
+		);
+	}
 
-  if (!cfg?.baseUrl || !cfg?.apiToken) {
-    throw new Error('[trilium] Missing config: TRILIUM_BASE_URL and TRILIUM_API_TOKEN must be set.');
-  }
+	const client = new TriliumClient(cfg);
+	const toolOptions: TriliumToolOptions = { namespace, moduleId, client };
 
-  const client = new TriliumClient({ baseUrl: cfg.baseUrl, apiToken: cfg.apiToken });
-  const toolOptions = { namespace, moduleId, client };
+	registerGetNoteTools(server, toolOptions);
+	registerListByLabelTools(server, toolOptions);
+	registerGetTreeTools(server, toolOptions);
+	registerSaveNoteTools(server, toolOptions);
 
-  registerGetNoteTools(server, toolOptions);
-  registerListByLabelTools(server, toolOptions);
-  registerGetTreeTools(server, toolOptions);
-  registerSaveNoteTools(server, toolOptions);
-
-  console.error(`[trilium] Registered tools with namespace: ${namespace}`);
+	console.error(`[trilium] Registered tools with namespace: ${namespace}`);
 }
 
 export const checkHealth: ModuleHealthChecker = async (config: unknown) => {
-  const cfg = config as TriliumModuleConfig | undefined;
+	const cfg = readTriliumConfig(config);
+	if (cfg === undefined) {
+		const missing: HealthCheck = {
+			id: "trilium_etapi",
+			ok: false,
+			detail: "missing baseUrl or apiToken in module config",
+		};
+		return [missing];
+	}
 
-  if (!cfg?.baseUrl || !cfg?.apiToken) {
-    return [{ id: 'trilium_etapi_health', ok: false, detail: 'missing baseUrl or apiToken in config' }];
-  }
-
-  try {
-    const client = new TriliumClient({ baseUrl: cfg.baseUrl, apiToken: cfg.apiToken });
-    await client.getAppInfo();
-    return [{ id: 'trilium_etapi_health', ok: true }];
-  } catch (err) {
-    return [{
-      id: 'trilium_etapi_health',
-      ok: false,
-      detail: err instanceof Error ? err.message : 'ETAPI unreachable',
-    }];
-  }
+	try {
+		const client = new TriliumClient(cfg);
+		const info = await client.getAppInfo();
+		const ok: HealthCheck = {
+			id: "trilium_etapi",
+			ok: true,
+			detail: `appVersion=${info.appVersion}`,
+		};
+		return [ok];
+	} catch (error) {
+		const detail = error instanceof Error ? error.message : String(error);
+		const failed: HealthCheck = {
+			id: "trilium_etapi",
+			ok: false,
+			detail,
+		};
+		return [failed];
+	}
 };
 ```
 
-**DoD:**
-- `tsc --noEmit` — brak błędów.
-- `npm run dev` — serwer startuje, log zawiera `[trilium] Registered tools with namespace: trilium`.
-- `GET /healthz` zwraca `{ status: "ok", checks: [{ id: "trilium_etapi_health", ok: true }] }`.
+**DoD Fazy 3:** `npx tsc --noEmit` przechodzi; `ENABLE_MODULE_TRILIUM=true` → log `[trilium] Registered tools with namespace: trilium`; `/healthz` zawiera `trilium_etapi`.
 
 ---
 
@@ -761,6 +1617,9 @@ Fazy 1 i 2 są **niezależne** (możesz równolegle dodać config i testować ET
 | `.env` | Dodaj wartości lokalne (nie commituj) | 2 |
 | `config/modules.config.ts` | Dodaj `TriliumModuleConfig` i wpis w `modulesConfig[]` | 2 |
 | `src/modules/trilium/types.ts` | Utwórz | 3 |
+| `src/modules/trilium/lib/validateClientConfig.ts` | Utwórz | 3 |
+| `src/modules/trilium/lib/parseEtapi.ts` | Utwórz | 3 |
+| `src/modules/trilium/lib/buildNoteTree.ts` | Utwórz | 3 |
 | `src/modules/trilium/lib/triliumClient.ts` | Utwórz | 3 |
 | `src/modules/trilium/lib/toolResponse.ts` | Utwórz | 3 |
 | `src/modules/trilium/tools/getNote.ts` | Utwórz | 3 |

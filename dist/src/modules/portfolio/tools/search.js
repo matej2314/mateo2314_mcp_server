@@ -1,17 +1,21 @@
-import { z } from 'zod';
-import { validSections } from '../lib/validSections.js';
-import { searchCorpus } from '../lib/search.js';
-import { toolError, toolJson } from '../lib/toolResponse.js';
+import { z } from "zod";
+import { validSections } from "../lib/validSections.js";
+import { searchCorpus } from "../lib/search.js";
+import { toolError, toolJson } from "../lib/toolResponse.js";
+import { registerInstrumentedTool } from "../../../observability/instrumentTool.js";
 export function registerSearchTools(server, options) {
     const toolName = `${options.namespace}_search`;
-    server.registerTool(toolName, {
+    registerInstrumentedTool(server, options.moduleId, toolName, {
         description: `[${options.namespace}] Wyszukiwanie pełnotekstowe po treści i frontmatterze (.md)`,
         inputSchema: {
-            query: z.string().min(1).describe('Fraza do wyszukania (bez rozróżniania wielkości liter)'),
+            query: z
+                .string()
+                .min(1)
+                .describe("Fraza do wyszukania (bez rozróżniania wielkości liter)"),
             section: z
                 .string()
                 .optional()
-                .describe(`Opcjonalnie jedna sekcja z manifestu: ${[...validSections].join(', ')}`),
+                .describe(`Opcjonalnie jedna sekcja z manifestu: ${[...validSections].join(", ")}`),
         },
     }, async (args) => {
         try {
@@ -19,7 +23,7 @@ export function registerSearchTools(server, options) {
             if (sec && !validSections.has(sec)) {
                 return toolError(`[${toolName}] Invalid section`, new Error(`Nieznana sekcja: ${sec}`));
             }
-            const results = await searchCorpus(args?.query ?? '', sec);
+            const results = await searchCorpus(args?.query ?? "", sec);
             return toolJson({ query: args?.query, section: sec, results });
         }
         catch (error) {

@@ -1,12 +1,14 @@
-import { z } from 'zod';
-import { toolManifestData } from '../lib/toolManifestData.js';
-import { readAllFiles, readFile } from '../lib/corpus.js';
-import { matchesExperience, toStrList, uniqueSorted } from '../lib/filterHelpers.js';
-import { toolError, toolJson } from '../lib/toolResponse.js';
+import { z } from "zod";
+import { toolManifestData } from "../lib/toolManifestData.js";
+import { readAllFiles, readFile } from "../lib/corpus.js";
+import { matchesExperience, toStrList, uniqueSorted, } from "../lib/filterHelpers.js";
+import { toolError, toolJson } from "../lib/toolResponse.js";
+import { registerInstrumentedTool } from "../../../observability/instrumentTool.js";
 export function registerExperienceTools(server, options) {
     const ns = options.namespace;
-    const manifest = toolManifestData('experience');
-    server.registerTool(`${ns}_experience_query`, {
+    const moduleId = options.moduleId;
+    const manifest = toolManifestData("experience");
+    registerInstrumentedTool(server, moduleId, `${ns}_experience_query`, {
         description: `[${ns}] Doświadczenie z filtrami: firma, rola, tech, rok startu/końca`,
         inputSchema: {
             company: z.string().optional(),
@@ -18,7 +20,7 @@ export function registerExperienceTools(server, options) {
     }, async (args) => {
         const toolName = `${ns}_experience_query`;
         try {
-            const all = await readAllFiles('experience');
+            const all = await readAllFiles("experience");
             const filters = {
                 company: args?.company,
                 role: args?.role,
@@ -35,12 +37,12 @@ export function registerExperienceTools(server, options) {
             return toolError(`[${toolName}] Error`, error);
         }
     });
-    server.registerTool(`${ns}_experience_list`, {
+    registerInstrumentedTool(server, moduleId, `${ns}_experience_list`, {
         description: `[${ns}] Pełna lista wpisów doświadczenia (id + metadane)`,
     }, async () => {
         const toolName = `${ns}_experience_list`;
         try {
-            const all = await readAllFiles('experience');
+            const all = await readAllFiles("experience");
             const items = all.map(({ id, data }) => ({ id, data }));
             return toolJson({ count: items.length, items });
         }
@@ -48,7 +50,7 @@ export function registerExperienceTools(server, options) {
             return toolError(`[${toolName}] Error`, error);
         }
     });
-    server.registerTool(`${ns}_experience_get`, {
+    registerInstrumentedTool(server, moduleId, `${ns}_experience_get`, {
         description: `[${ns}] Szczegóły jednego wpisu doświadczenia po id (nazwa pliku bez .md)`,
         inputSchema: {
             id: z.string().min(1),
@@ -58,20 +60,20 @@ export function registerExperienceTools(server, options) {
         try {
             const id = args?.id;
             if (!id)
-                return toolError(`[${toolName}] Missing id`, new Error('id jest wymagane'));
-            const { data, body } = await readFile('experience', `${id}.md`);
+                return toolError(`[${toolName}] Missing id`, new Error("id jest wymagane"));
+            const { data, body } = await readFile("experience", `${id}.md`);
             return toolJson({ id, data, body });
         }
         catch (error) {
             return toolError(`[${toolName}] Error`, error);
         }
     });
-    server.registerTool(`${ns}_experience_tags`, {
+    registerInstrumentedTool(server, moduleId, `${ns}_experience_tags`, {
         description: `[${ns}] Technologie w doświadczeniu (manifest + pole tech we frontmatter)`,
     }, async () => {
         const toolName = `${ns}_experience_tags`;
         try {
-            const all = await readAllFiles('experience');
+            const all = await readAllFiles("experience");
             const fromFiles = [];
             for (const { data } of all) {
                 fromFiles.push(...toStrList(data.tech));

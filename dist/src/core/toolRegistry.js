@@ -12,6 +12,7 @@ export class ToolRegistry {
         }
         await imported.register(this.mcpServer, {
             namespace: moduleConfig.namespace,
+            moduleId: moduleConfig.name,
             config: moduleConfig.config,
         });
         this.loadedModules.set(moduleConfig.name, imported);

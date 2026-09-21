@@ -1,6 +1,6 @@
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import fs from "fs/promises";
 import { safeJoin } from "../lib/paths.js";
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { registerInstrumentedTool } from "../../../observability/instrumentTool.js";
 
 interface ToolOptions {
@@ -32,8 +32,7 @@ export function registerProfileTools(server: McpServer, options: ToolOptions) {
           ],
         };
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : String(error);
+        const message = error instanceof Error ? error.message : String(error);
         console.error(`[${toolName}] Error:`, error);
         return {
           content: [

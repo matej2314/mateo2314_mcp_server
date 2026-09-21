@@ -1,12 +1,14 @@
-import { z } from 'zod';
-import { toolManifestData } from '../lib/toolManifestData.js';
-import { readAllFiles, readFile } from '../lib/corpus.js';
-import { matchesCourse, toStrList, uniqueSorted } from '../lib/filterHelpers.js';
-import { toolError, toolJson } from '../lib/toolResponse.js';
+import { z } from "zod";
+import { toolManifestData } from "../lib/toolManifestData.js";
+import { readAllFiles, readFile } from "../lib/corpus.js";
+import { matchesCourse, toStrList, uniqueSorted, } from "../lib/filterHelpers.js";
+import { toolError, toolJson } from "../lib/toolResponse.js";
+import { registerInstrumentedTool } from "../../../observability/instrumentTool.js";
 export function registerCoursesTools(server, options) {
     const ns = options.namespace;
-    const m = toolManifestData('courses');
-    server.registerTool(`${ns}_courses_query`, {
+    const moduleId = options.moduleId;
+    const m = toolManifestData("courses");
+    registerInstrumentedTool(server, moduleId, `${ns}_courses_query`, {
         description: `[${ns}] Kursy z filtrami: category, platform, year, status, tags`,
         inputSchema: {
             category: z.string().optional(),
@@ -14,12 +16,15 @@ export function registerCoursesTools(server, options) {
             year: z.number().int().optional(),
             status: z.string().optional(),
             tags: z.array(z.string()).optional(),
-            matchAll: z.boolean().optional().describe('Dla tags: wszystkie vs dowolny'),
+            matchAll: z
+                .boolean()
+                .optional()
+                .describe("Dla tags: wszystkie vs dowolny"),
         },
     }, async (args) => {
         const toolName = `${ns}_courses_query`;
         try {
-            const all = await readAllFiles('courses');
+            const all = await readAllFiles("courses");
             const filters = {
                 category: args?.category,
                 platform: args?.platform,
@@ -37,12 +42,12 @@ export function registerCoursesTools(server, options) {
             return toolError(`[${toolName}] Error`, error);
         }
     });
-    server.registerTool(`${ns}_courses_list`, {
+    registerInstrumentedTool(server, moduleId, `${ns}_courses_list`, {
         description: `[${ns}] Lista wszystkich kursów (id + metadane)`,
     }, async () => {
         const toolName = `${ns}_courses_list`;
         try {
-            const all = await readAllFiles('courses');
+            const all = await readAllFiles("courses");
             const items = all.map(({ id, data }) => ({ id, data }));
             return toolJson({ count: items.length, items });
         }
@@ -50,7 +55,7 @@ export function registerCoursesTools(server, options) {
             return toolError(`[${toolName}] Error`, error);
         }
     });
-    server.registerTool(`${ns}_courses_get`, {
+    registerInstrumentedTool(server, moduleId, `${ns}_courses_get`, {
         description: `[${ns}] Szczegóły kursu po id (nazwa pliku bez .md)`,
         inputSchema: {
             id: z.string().min(1),
@@ -60,20 +65,20 @@ export function registerCoursesTools(server, options) {
         try {
             const id = args?.id;
             if (!id)
-                return toolError(`[${toolName}] Missing id`, new Error('id jest wymagane'));
-            const { data, body } = await readFile('courses', `${id}.md`);
+                return toolError(`[${toolName}] Missing id`, new Error("id jest wymagane"));
+            const { data, body } = await readFile("courses", `${id}.md`);
             return toolJson({ id, data, body });
         }
         catch (error) {
             return toolError(`[${toolName}] Error`, error);
         }
     });
-    server.registerTool(`${ns}_courses_tags`, {
+    registerInstrumentedTool(server, moduleId, `${ns}_courses_tags`, {
         description: `[${ns}] Tagi / tematy kursów (manifest + frontmatter)`,
     }, async () => {
         const toolName = `${ns}_courses_tags`;
         try {
-            const all = await readAllFiles('courses');
+            const all = await readAllFiles("courses");
             const fromFiles = [];
             for (const { data } of all) {
                 fromFiles.push(...toStrList(data.tags));
@@ -85,13 +90,15 @@ export function registerCoursesTools(server, options) {
             return toolError(`[${toolName}] Error`, error);
         }
     });
-    server.registerTool(`${ns}_courses_categories`, {
+    registerInstrumentedTool(server, moduleId, `${ns}_courses_categories`, {
         description: `[${ns}] Kategorie kursów (manifest + pliki)`,
     }, async () => {
         const toolName = `${ns}_courses_categories`;
         try {
-            const all = await readAllFiles('courses');
-            const fromFiles = all.map((x) => String(x.data.category ?? '')).filter(Boolean);
+            const all = await readAllFiles("courses");
+            const fromFiles = all
+                .map((x) => String(x.data.category ?? ""))
+                .filter(Boolean);
             const categories = uniqueSorted([...m.categories, ...fromFiles]);
             return toolJson({ categories });
         }
@@ -99,13 +106,15 @@ export function registerCoursesTools(server, options) {
             return toolError(`[${toolName}] Error`, error);
         }
     });
-    server.registerTool(`${ns}_courses_platforms`, {
+    registerInstrumentedTool(server, moduleId, `${ns}_courses_platforms`, {
         description: `[${ns}] Platformy kursów (manifest + pole platform w plikach)`,
     }, async () => {
         const toolName = `${ns}_courses_platforms`;
         try {
-            const all = await readAllFiles('courses');
-            const fromFiles = all.map((x) => String(x.data.platform ?? '')).filter(Boolean);
+            const all = await readAllFiles("courses");
+            const fromFiles = all
+                .map((x) => String(x.data.platform ?? ""))
+                .filter(Boolean);
             const platforms = uniqueSorted([...m.platforms, ...fromFiles]);
             return toolJson({ platforms });
         }
