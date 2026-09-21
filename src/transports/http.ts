@@ -315,7 +315,7 @@ export async function startHttpTransport(buildServer: (moduleConfig: ModuleConfi
 		const httpServer = app
 			.listen(options.port, host, () => {
 				console.error(`[HTTP Transport] Server started and listening on port ${options.port} (host ${host})`);
-				console.error(`[HTTP Transport] Streamable MCP HTTP — http://${host}:${options.port}${mountPath}/<moduleId> (e.g. ...${mountPath}/portfolio, ...${mountPath}/test-tools)`);
+				console.error(`[HTTP Transport] Streamable MCP HTTP — http://${host}:${options.port}${mountPath}/<moduleId>`);
 				resolve();
 			})
 			.on('error', reject);

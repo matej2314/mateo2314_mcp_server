@@ -67,6 +67,17 @@ function requireBoolean(record: Record<string, unknown>, key: string): boolean {
   return value;
 }
 
+function optionalBoolean(
+  record: Record<string, unknown>,
+  key: string,
+  fallback: boolean,
+): boolean {
+  if (!(key in record) || record[key] === undefined) {
+    return fallback;
+  }
+  return requireBoolean(record, key);
+}
+
 function parseNoteIdField(record: Record<string, unknown>, key: string): NoteId {
   return noteId(requireString(record, key));
 }
@@ -143,7 +154,7 @@ export function parseNoteMetadata(raw: unknown): NoteMetadata {
     mime: requireString(raw, "mime"),
     isProtected: requireBoolean(raw, "isProtected"),
     blobId: requireString(raw, "blobId"),
-    isDeleted: requireBoolean(raw, "isDeleted"),
+    isDeleted: optionalBoolean(raw, "isDeleted", false),
     dateCreated: requireString(raw, "dateCreated"),
     dateModified: requireString(raw, "dateModified"),
     utcDateCreated: requireString(raw, "utcDateCreated"),

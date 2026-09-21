@@ -41,38 +41,40 @@ const defaultPortfolioContentRoot = path.join(
   "content",
 );
 
-export const modulesConfig: ModuleConfig[] = [
-  {
-    name: "portfolio",
-    enabled: process.env.ENABLE_MODULE_PORTFOLIO !== "false",
-    namespace: process.env.PORTFOLIO_NAMESPACE || "portfolio",
-    config: {
-      contentRoot: process.env.PORTFOLIO_CONTENT_ROOT
-        ? path.resolve(process.env.PORTFOLIO_CONTENT_ROOT)
-        : defaultPortfolioContentRoot,
-      corpusVersion: process.env.PORTFOLIO_CORPUS_VERSION || "1.0.0",
-    },
-  },
-  {
-    name: "test-tools",
-    enabled: process.env.ENABLE_MODULE_TEST_TOOLS !== "false",
-    namespace: process.env.TEST_TOOLS_NAMESPACE || "test",
-  },
-  {
-    name: "trilium",
-    enabled: process.env.ENABLE_MODULE_TRILIUM !== "false",
-    namespace: process.env.TRILIUM_NAMESPACE || "trilium",
-    config: {
-      baseUrl: process.env.TRILIUM_BASE_URL ?? "",
-      apiToken: process.env.TRILIUM_API_TOKEN ?? "",
-    },
-  },
-];
-
 export type ModuleId = ModuleConfig["name"];
 
+export function getModulesConfig(): ModuleConfig[] {
+  return [
+    {
+      name: "portfolio",
+      enabled: process.env.ENABLE_MODULE_PORTFOLIO !== "false",
+      namespace: process.env.PORTFOLIO_NAMESPACE || "portfolio",
+      config: {
+        contentRoot: process.env.PORTFOLIO_CONTENT_ROOT
+          ? path.resolve(process.env.PORTFOLIO_CONTENT_ROOT)
+          : defaultPortfolioContentRoot,
+        corpusVersion: process.env.PORTFOLIO_CORPUS_VERSION || "1.0.0",
+      },
+    },
+    {
+      name: "test-tools",
+      enabled: process.env.ENABLE_MODULE_TEST_TOOLS !== "false",
+      namespace: process.env.TEST_TOOLS_NAMESPACE || "test",
+    },
+    {
+      name: "trilium",
+      enabled: process.env.ENABLE_MODULE_TRILIUM !== "false",
+      namespace: process.env.TRILIUM_NAMESPACE || "trilium",
+      config: {
+        baseUrl: process.env.TRILIUM_BASE_URL ?? "",
+        apiToken: process.env.TRILIUM_API_TOKEN ?? "",
+      },
+    },
+  ];
+}
+
 export function getEnabledModuleByName(name: string): ModuleConfig | undefined {
-  const found = modulesConfig.find((m) => m.name === name);
+  const found = getModulesConfig().find((m) => m.name === name);
   if (!found || !found.enabled) {
     return undefined;
   }

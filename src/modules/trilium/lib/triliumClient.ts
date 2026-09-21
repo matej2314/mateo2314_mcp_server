@@ -33,7 +33,7 @@ export class TriliumClient {
     validateClientConfig(config);
     this.baseUrl = config.baseUrl.replace(/\/$/, "");
     this.headers = {
-      Authorization: `Bearer ${config.apiToken}`,
+      Authorization: config.apiToken,
       Accept: "application/json",
       "Content-Type": "application/json",
     };

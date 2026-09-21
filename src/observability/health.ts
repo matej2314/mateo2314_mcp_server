@@ -1,4 +1,4 @@
-import { modulesConfig } from '../../config/modules.config.js';
+import { getModulesConfig } from '../../config/modules.config.js';
 import { isMcpModule, type HealthCheck, type McpModule } from '../core/types.js';
 
 export type HealthPayload = {
@@ -19,7 +19,7 @@ async function loadModule(name: string): Promise<McpModule | undefined> {
 export async function buildHealthPayload(): Promise<HealthPayload> {
 	const checks: HealthCheck[] = [];
 
-	for (const moduleConfig of modulesConfig) {
+	for (const moduleConfig of getModulesConfig()) {
 		if (!moduleConfig.enabled) continue;
 
 		const module = await loadModule(moduleConfig.name);

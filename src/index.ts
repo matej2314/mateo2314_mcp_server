@@ -1,11 +1,14 @@
-import dotenv from "dotenv";
-dotenv.config();
+import "dotenv/config";
 
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import {
+  getEnabledModuleByName,
+  type ModuleConfig,
+} from "../config/modules.config.js";
 import { createMcpServer } from "./core/server.js";
 import { ToolRegistry } from "./core/toolRegistry.js";
+import { readTriliumConfig } from "./modules/trilium/lib/validateClientConfig.js";
 import { startHttpTransport } from "./transports/http.js";
-import { ModuleConfig } from "../config/modules.config.js";
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 
 async function buildMcpServerForModule(
   moduleConfig: ModuleConfig,
@@ -17,7 +20,21 @@ async function buildMcpServerForModule(
   return server;
 }
 
+function assertTriliumConfigIfEnabled(): void {
+  const trilium = getEnabledModuleByName("trilium");
+  if (trilium === undefined || trilium.name !== "trilium") {
+    return;
+  }
+  if (readTriliumConfig(trilium.config) === undefined) {
+    throw new Error(
+      "[trilium] No config.baseUrl/apiToken. Check TRILIUM_BASE_URL and TRILIUM_API_TOKEN in .env.",
+    );
+  }
+}
+
 async function main() {
+  assertTriliumConfigIfEnabled();
+
   const port = parseInt(process.env.MCP_PORT ?? "3333", 10);
   const host = process.env.MCP_HOST ?? "127.0.0.1";
 
