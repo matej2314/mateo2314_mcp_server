@@ -1,226 +1,395 @@
 # Unified Agent Context System (MCP)
 
-Globalny serwer [Model Context Protocol](https://modelcontextprotocol.io/) z rozdzieleniem rdzenia, transportu i modułów narzędzi per domena.
+![MCP](https://img.shields.io/badge/Model%20Context%20Protocol-server-6D5EF7) ![Node.js](https://img.shields.io/badge/Node.js-25.x-339933?logo=node.js&logoColor=white) ![TypeScript](https://img.shields.io/badge/TypeScript-6.x-3178C6?logo=typescript&logoColor=white) ![Docker](https://img.shields.io/badge/Docker-ready-2496ED?logo=docker&logoColor=white) ![Prometheus](https://img.shields.io/badge/Prometheus-metrics-E6522C?logo=prometheus&logoColor=white)
+
+Unified Agent Context System to dedykowana warstwa kontekstowa oparta o [Model Context Protocol](https://modelcontextprotocol.io/). Łączy portfolio, notatki, narzędzia diagnostyczne i obserwowalność w jeden serwer MCP, który może zasilać agentów AI uporządkowanymi danymi z kilku domen.
+
+## Spis Treści
+
+- [Możliwości](#możliwości)
+- [Rola Narzędzia](#rola-narzędzia)
+- [Środowiska](#środowiska)
+- [Architektura](#architektura)
+- [Transporty](#transporty)
+- [Moduły i narzędzia](#moduły-i-narzędzia)
+- [Konfiguracja](#konfiguracja)
+- [Obsługa Operacyjna](#obsługa-operacyjna)
+- [Observability](#observability)
+- [Docker](#docker)
+- [Integracja z klientami MCP](#integracja-z-klientami-mcp)
+- [Treść portfolio](#treść-portfolio)
+- [Dodawanie modułu](#dodawanie-modułu)
+- [Licencja](#licencja)
+
+## Możliwości
+
+| Obszar | Rola w systemie |
+| --- | --- |
+| Warstwa MCP | Jeden punkt dostępu do narzędzi kontekstowych dla agentów AI. |
+| Moduły domenowe | Osobne moduły dla portfolio, Trilium i narzędzi diagnostycznych. |
+| Transport HTTP | Streamable HTTP z sesjami MCP pod `/mcp/<moduleId>`. |
+| Bezpieczeństwo | Bearer token wymagany dla ścieżek MCP. |
+| Observability | Health checks, request IDs i metryki Prometheus dla pracy serwera. |
+| Portfolio | Strukturalny dostęp do profilu, projektów, umiejętności, doświadczenia i kursów. |
+| Trilium | Dostęp do notatek, drzewa wiedzy i zapisu treści przez ETAPI. |
+| Środowiska | Podział pracy między środowisko produkcyjne dla portfolio i homelab dla Trilium. |
+| Test tools | Moduł kontrolny do diagnostyki rejestracji narzędzi. |
+
+## Rola Narzędzia
+
+System pełni rolę dedykowanej warstwy kontekstowej dla agentów AI, ale pozostaje zorganizowany jak pełnoprawny serwer produkcyjny: ma moduły, izolację transportu, metryki, health checks i jawne kontrakty narzędzi. Zamiast trzymać kontekst w jednym dużym promptcie, wystawia go jako zestaw narzędzi MCP z czytelnymi namespace'ami.
+
+Najważniejsze scenariusze:
+
+- prezentowanie danych portfolio przez narzędzia `portfolio_*`,
+- wyszukiwanie i filtrowanie treści z lokalnego korpusu Markdown,
+- pobieranie i zapisywanie notatek Trilium przez `trilium_*`,
+- wystawienie modułów przez HTTP dla agentów lub środowisk zdalnych,
+- monitorowanie działania przez `/healthz` i `/metrics`.
+
+Adres modułu w transporcie HTTP ma postać:
+
+```text
+http://127.0.0.1:3333/mcp/<moduleId>
+```
+
+Przykłady: `/mcp/portfolio`, `/mcp/trilium`, `/mcp/test-tools`.
+
+## Środowiska
+
+Serwer jest projektowany jako jedna warstwa MCP działająca w dwóch kontekstach operacyjnych:
+
+| Środowisko | Moduł | Rola |
+| --- | --- | --- |
+| Produkcyjne | `portfolio` | Publiczna warstwa danych portfolio, projektów, umiejętności, doświadczenia i kursów. |
+| Homelab | `trilium` | Integracja z prywatną bazą wiedzy Trilium przez ETAPI. |
+
+Moduł `trilium` jest rozwijany na branchu `feat/trilium-integration`.
 
 ## Architektura
 
-- **Core** (`src/core/`) — tworzenie instancji `McpServer`, typy wspólne dla modułów, `ToolRegistry` ładujący moduły z konfiguracji.
-- **Transports** (`src/transports/`) — adaptery MCP: **Streamable HTTP** ([`http.ts`](./src/transports/http.ts), sesje, Express przez SDK) oraz **stdio** ([`stdio.ts`](./src/transports/stdio.ts)) — w [`src/index.ts`](./src/index.ts) domyślnie startuje **HTTP**; stdio włączasz ręcznie w entry point (krok po kroku: [Transport stdio (aktywacja)](#transport-stdio-aktywacja-alternatywy-do-http)).
-- **Observability** (`src/observability/`) — health checks oraz metryki Prometheus; endpointy podpinane w transporcie HTTP (szczegóły: [Observability](#observability)).
-- **Modules** (`src/modules/<nazwa>/`) — każdy moduł eksportuje `register(server, options)` i rejestruje narzędzia pod własnym namespace z env / `config/modules.config.ts`.
-- **Config** (`config/modules.config.ts`) — lista modułów, flagi `ENABLE_MODULE_*`, namespace i opcje (np. `contentRoot` dla portfolio).
+```mermaid
+flowchart LR
+    Entry["src/index.ts"] --> Config["config/modules.config.ts"]
+    Entry --> HTTP["startHttpTransport()"]
+    HTTP --> Route["/mcp/:moduleId"]
+    Route --> Registry["ToolRegistry"]
+    Registry --> Portfolio["portfolio module"]
+    Registry --> Trilium["trilium module"]
+    Registry --> TestTools["test-tools module"]
+    Portfolio --> PortfolioTools["portfolio_* tools"]
+    Trilium --> TriliumTools["trilium_* tools"]
+    TestTools --> TestToolsTools["test_* tools"]
+    HTTP --> Health["/healthz"]
+    HTTP --> Metrics["/metrics"]
+```
 
-Przepływ (obecny domyślny): `src/index.ts` → `createMcpServer()` → `ToolRegistry.loadModules()` → `startHttpTransport(buildMcpServer, { port, host })` (Bearer: **wymagany** niepusty `MCP_INTERNAL_TOKEN` — `http.ts` odrzuca start bez niego i weryfikuje nagłówek na każdym żądaniu).
+Główne warstwy:
 
-## Moduły
+| Warstwa | Lokalizacja | Odpowiedzialność |
+| --- | --- | --- |
+| Core | `src/core/` | Tworzenie `McpServer`, typy modułów, rejestracja narzędzi przez `ToolRegistry`. |
+| Transporty | `src/transports/` | HTTP jako domyślna ścieżka uruchomienia oraz alternatywny transport stdio. |
+| Moduły | `src/modules/` | Domenowe zestawy narzędzi MCP. |
+| Observability | `src/observability/` | Health checks, metryki Prometheus, instrumentacja narzędzi. |
+| Config | `config/modules.config.ts` | Flagi `ENABLE_MODULE_*`, namespace narzędzi i konfiguracja modułów. |
+
+### Przepływ Sesji HTTP
+
+```mermaid
+sequenceDiagram
+    participant Client as MCP client
+    participant HTTP as HTTP transport
+    participant Config as modules.config
+    participant Registry as ToolRegistry
+    participant Module as Module tools
+
+    Client->>HTTP: POST /mcp/:moduleId initialize
+    HTTP->>Config: getEnabledModuleByName(moduleId)
+    Config-->>HTTP: ModuleConfig
+    HTTP->>Registry: build McpServer for module
+    Registry->>Module: register(server, options)
+    HTTP-->>Client: mcp-session-id
+    Client->>HTTP: POST/GET/DELETE with mcp-session-id
+    HTTP->>Module: handle MCP request
+```
+
+W HTTP `moduleId` pochodzi ze ścieżki URL, np. `/mcp/portfolio`. Namespace narzędzi jest osobną wartością konfiguracyjną, np. `PORTFOLIO_NAMESPACE=portfolio`, i wpływa na nazwy narzędzi typu `portfolio_get_profile`.
+
+## Transporty
+
+| Transport | Status | Plik | Zastosowanie |
+| --- | --- | --- | --- |
+| Streamable HTTP | Domyślny | `src/transports/http.ts` | Serwer dla agentów zdalnych, VPS, reverse proxy i klientów MCP obsługujących HTTP. |
+| stdio | Alternatywny | `src/transports/stdio.ts` | Klienci spawnujący proces Node i komunikujący się przez stdin/stdout. |
+
+### HTTP
+
+HTTP startuje z `src/index.ts` przez `startHttpTransport(buildMcpServerForModule, { port, host })`.
+
+Wymagania:
+
+- `MCP_INTERNAL_TOKEN` musi być ustawiony i niepusty.
+- Każde żądanie do `/mcp/<moduleId>` musi mieć nagłówek `Authorization: Bearer <token>`.
+- `/healthz` i `/metrics` nie wymagają Bearer tokena.
+
+Domyślne wartości:
+
+| Zmienna | Domyślnie | Znaczenie |
+| --- | --- | --- |
+| `MCP_HOST` | `127.0.0.1` | Host bindowania HTTP. |
+| `MCP_PORT` | `3333` | Port HTTP. |
+| `HEALTH_PATH` | `/healthz` | Endpoint health check. |
+| `METRICS_PATH` | `/metrics` | Endpoint metryk Prometheus. |
+
+### stdio
+
+`startStdioTransport(server)` istnieje w `src/transports/stdio.ts`, ale nie jest podłączony w domyślnym `src/index.ts`. Żeby użyć stdio, trzeba przygotować osobny entry point albo ręcznie przełączyć `index.ts` z HTTP na stdio.
+
+Minimalny schemat:
+
+```typescript
+const server = createMcpServer();
+const registry = new ToolRegistry(server);
+await registry.loadSingleModule(moduleConfig);
+await startStdioTransport(server);
+```
+
+## Moduły i narzędzia
+
+```mermaid
+flowchart TD
+    Modules["src/modules"]
+
+    Modules --> Portfolio["portfolio"]
+    Portfolio --> P1["profile / about / manifest"]
+    P1 --> P2["search"]
+    P2 --> P3["projects / skills / experience / courses"]
+
+    Modules --> Trilium["trilium"]
+    Trilium --> T1["get_note"]
+    T1 --> T2["list_by_label"]
+    T2 --> T3["get_tree"]
+    T3 --> T4["save_note"]
+
+    Modules --> TestTools["test-tools"]
+    TestTools --> D1["get_user_data"]
+    D1 --> D2["get_products"]
+
+    Portfolio ~~~ Trilium
+    Trilium ~~~ TestTools
+```
 
 ### Portfolio
 
-Treść z plików Markdown i `manifest.json` w katalogu content (read-only, ścieżki przez `safeJoin` z ochroną przed path traversal).
+Moduł `portfolio` obsługuje środowisko produkcyjne: udostępnia publiczne dane portfolio z plików Markdown i `manifest.json`. Treść jest czytana z `PORTFOLIO_CONTENT_ROOT`, a ścieżki są chronione przed path traversal.
 
-**Lib:** `corpus.ts`, `paths.ts`, `frontmatter.ts`, `search.ts`, `filterHelpers.ts`, `toolResponse.ts`, `validSections.ts`, `toolManifestData.ts`.
-
-**Narzędzia** (prefix domyślny `portfolio_`, konfigurowalny przez `PORTFOLIO_NAMESPACE`):
+Domyślny namespace narzędzi: `portfolio`.
 
 | Narzędzie | Opis |
-|-----------|------|
-| `{ns}_get_profile` | Profil publiczny |
-| `{ns}_get_about` | Sekcja „O mnie” |
-| `{ns}_get_manifest` | `manifest.json` (sekcje, metadane MVP) |
-| `{ns}_search` | Wyszukiwanie po korpusie |
-| `{ns}_projects_query`, `{ns}_projects_list`, `{ns}_projects_get`, `{ns}_projects_tags` | Projekty |
-| `{ns}_skills_query`, `{ns}_skills_list`, `{ns}_skills_get`, `{ns}_skills_tags`, `{ns}_skills_categories` | Umiejętności |
-| `{ns}_experience_query`, `{ns}_experience_list`, `{ns}_experience_get`, `{ns}_experience_tags` | Doświadczenie |
-| `{ns}_courses_query`, `{ns}_courses_list`, `{ns}_courses_get`, `{ns}_courses_tags`, `{ns}_courses_categories`, `{ns}_courses_platforms` | Kursy |
+| --- | --- |
+| `{ns}_get_profile` | Profil publiczny. |
+| `{ns}_get_about` | Sekcja "O mnie". |
+| `{ns}_get_manifest` | Manifest treści portfolio. |
+| `{ns}_search` | Wyszukiwanie po korpusie. |
+| `{ns}_projects_query`, `{ns}_projects_list`, `{ns}_projects_get`, `{ns}_projects_tags` | Projekty. |
+| `{ns}_skills_query`, `{ns}_skills_list`, `{ns}_skills_get`, `{ns}_skills_tags`, `{ns}_skills_categories` | Umiejętności. |
+| `{ns}_experience_query`, `{ns}_experience_list`, `{ns}_experience_get`, `{ns}_experience_tags` | Doświadczenie. |
+| `{ns}_courses_query`, `{ns}_courses_list`, `{ns}_courses_get`, `{ns}_courses_tags`, `{ns}_courses_categories`, `{ns}_courses_platforms` | Kursy. |
 
-`{ns}` = wartość namespace (np. `portfolio`).
+### Trilium
+
+Moduł `trilium` obsługuje środowisko homelab: integruje MCP z Trilium Notes przez ETAPI. Wymaga `TRILIUM_BASE_URL` i `TRILIUM_API_TOKEN`. Kod modułu znajduje się na branchu `feat/trilium-integration`.
+
+Domyślny namespace narzędzi: `trilium`.
+
+| Narzędzie | Tryb | Opis |
+| --- | --- | --- |
+| `{ns}_get_note` | Read | Pobiera metadane notatki, opcjonalnie także treść. |
+| `{ns}_list_by_label` | Read | Wyszukuje notatki po labelce `#label` albo `#label=value`. |
+| `{ns}_get_tree` | Read | Buduje drzewo notatek od wskazanego korzenia. |
+| `{ns}_save_note` | Write | Tworzy nową notatkę albo aktualizuje tytuł/treść istniejącej. |
+
+Ważne: chronione notatki Trilium są obsługiwane jako błąd narzędzia bez ujawniania treści.
 
 ### test-tools
 
-Przykładowy moduł demonstracyjny (`zod` + `server.tool`): `{ns}_get_user_data`, `{ns}_get_products`. Domyślny namespace: `test` (`TEST_TOOLS_NAMESPACE`). W środowisku produkcyjnym zwykle wyłączasz: `ENABLE_MODULE_TEST_TOOLS=false`.
+Moduł kontrolny do sprawdzania działania rejestracji narzędzi i odpowiedzi MCP.
 
-Moduł jest **włączony domyślnie** (jak portfolio), dopóki nie ustawisz `ENABLE_MODULE_*=false`.
+Domyślny namespace narzędzi: `test`.
 
-## Struktura repozytorium
+| Narzędzie | Opis |
+| --- | --- |
+| `{ns}_get_user_data` | Zwraca przykładowe dane użytkownika. |
+| `{ns}_get_products` | Zwraca przykładowe produkty. |
 
-```
-.                                 # korzeń repozytorium (nazwa katalogu zależy od klonu)
-├── config/
-│   └── modules.config.ts          # Moduły, namespace, contentRoot, corpusVersion
-├── scripts/
-│   └── copy-portfolio-content.mjs # Po tsc: kopiuje content → dist/.../portfolio/content
-├── Dockerfile
-├── docker-compose.yml             # Przykładowe wdrożenie HTTP (MCP_HOST, MCP_PORT)
-├── src/
-│   ├── index.ts                   # Entry: server → registry → HTTP (domyślnie)
-│   ├── core/
-│   │   ├── server.ts
-│   │   ├── toolRegistry.ts
-│   │   └── types.ts
-│   ├── transports/
-│   │   ├── http.ts                # Streamable HTTP, /mcp, Bearer; podpina /healthz i /metrics
-│   │   └── stdio.ts
-│   ├── observability/
-│   │   ├── health.ts              # Aggregacja checkHealth włączonych modułów
-│   │   ├── metrics.ts             # prom-client: HTTP, sesje, auth, toolsy
-│   │   └── instrumentTool.ts      # Wrapper registerTool + observeTool
-│   └── modules/
-│       ├── portfolio/
-│       │   ├── index.ts           # register*: profile, about, manifest, search, projects, skills, experience, courses
-│       │   ├── content/           # .md, manifest.json (+ kopia w dist po buildzie)
-│       │   ├── lib/
-│       │   └── tools/
-│       └── test-tools/
-│           ├── index.ts
-│           └── tools/
-└── dist/                          # `tsc` → m.in. dist/src/index.js
-```
-
-## Instalacja
+W konfiguracji publicznej lub produkcyjnej zwykle warto go wyłączyć:
 
 ```bash
-npm install
+ENABLE_MODULE_TEST_TOOLS=false
 ```
 
 ## Konfiguracja
 
-```bash
-cp .env.example .env
-```
+Konfiguracja modułów znajduje się w `config/modules.config.ts`, a przykładowe zmienne w `.env.example`.
 
-Ważne zmienne (szczegóły w [`.env.example`](./.env.example)):
+### Zmienne Wspólne
 
-- **Portfolio:** `ENABLE_MODULE_PORTFOLIO`, `PORTFOLIO_NAMESPACE`, `PORTFOLIO_CONTENT_ROOT`, `PORTFOLIO_CORPUS_VERSION`
-- **test-tools:** `ENABLE_MODULE_TEST_TOOLS`, `TEST_TOOLS_NAMESPACE`
-- **Transport HTTP (aktywny w `src/index.ts`):** `MCP_HOST` (domyślnie `127.0.0.1`), `MCP_PORT` (domyślnie `3333`), **`MCP_INTERNAL_TOKEN`** — **wymagana** niepusta wartość; bez niej proces nie wystartuje; każde żądanie HTTP musi mieć `Authorization: Bearer <ten sam token>`
-- **Observability (HTTP):** `HEALTH_ENABLED` / `METRICS_ENABLED` (domyślnie włączone; wyłączenie: `false`), `HEALTH_PATH` (domyślnie `/healthz`), `METRICS_PATH` (domyślnie `/metrics`)
+| Zmienna | Wymagana | Opis |
+| --- | --- | --- |
+| `MCP_HOST` | Nie | Host HTTP, domyślnie `127.0.0.1`. |
+| `MCP_PORT` | Nie | Port HTTP, domyślnie `3333`. |
+| `MCP_INTERNAL_TOKEN` | Tak dla HTTP | Bearer token wymagany dla `/mcp/<moduleId>`. |
+| `HEALTH_ENABLED` | Nie | `false` wyłącza health endpoint. |
+| `HEALTH_PATH` | Nie | Domyślnie `/healthz`. |
+| `METRICS_ENABLED` | Nie | `false` wyłącza metryki. |
+| `METRICS_PATH` | Nie | Domyślnie `/metrics`. |
+
+### Portfolio
+
+| Zmienna | Domyślnie | Opis |
+| --- | --- | --- |
+| `ENABLE_MODULE_PORTFOLIO` | Włączony, jeśli nie `false` | Flaga modułu. |
+| `PORTFOLIO_NAMESPACE` | `portfolio` | Prefix nazw narzędzi. |
+| `PORTFOLIO_CONTENT_ROOT` | `src/modules/portfolio/content` | Katalog treści. |
+| `PORTFOLIO_CORPUS_VERSION` | `1.0.0` | Wersja korpusu zwracana w danych modułu. |
+
+### Trilium
+
+| Zmienna | Domyślnie | Opis |
+| --- | --- | --- |
+| `ENABLE_MODULE_TRILIUM` | Włączony, jeśli nie `false` | Flaga modułu. W `.env.example` ustawiona na `false`. |
+| `TRILIUM_NAMESPACE` | `trilium` | Prefix nazw narzędzi. |
+| `TRILIUM_BASE_URL` | Brak | Bazowy URL Trilium ETAPI. |
+| `TRILIUM_API_TOKEN` | Brak | Token ETAPI. |
+
+Jeśli Trilium jest włączony bez `TRILIUM_BASE_URL` i `TRILIUM_API_TOKEN`, `src/index.ts` przerwie start procesu.
+
+### test-tools
+
+| Zmienna | Domyślnie | Opis |
+| --- | --- | --- |
+| `ENABLE_MODULE_TEST_TOOLS` | Włączony, jeśli nie `false` | Flaga modułu demonstracyjnego. |
+| `TEST_TOOLS_NAMESPACE` | `test` | Prefix nazw narzędzi. |
+
+## Obsługa Operacyjna
+
+| Komenda | Opis |
+| --- | --- |
+| `npm run dev` | Start developerski przez `tsx watch src/index.ts`. |
+| `npm run build` | Kompilacja TypeScript i kopiowanie contentu portfolio do `dist`. |
+| `npm start` | Start produkcyjny z `dist/src/index.js`. |
+| `npm run typecheck` | Sprawdzenie typów bez generowania plików. |
+
+Build uruchamia `tsc` oraz `scripts/copy-portfolio-content.mjs`, żeby content portfolio był dostępny po kompilacji.
 
 ## Observability
 
-Warstwa w [`src/observability/`](./src/observability/) — health i metryki Prometheus. Endpointy rejestruje wyłącznie **transport HTTP** w [`src/transports/http.ts`](./src/transports/http.ts) (przy stdio brak `/healthz` i `/metrics`). Ścieżki `/healthz` i `/metrics` **nie** wymagają Bearer (middleware auth dotyczy tylko ścieżek pod mount MCP, domyślnie `/mcp`).
+Endpointy observability są rejestrowane tylko przez transport HTTP.
 
-### Health (`health.ts`)
+### Health
 
-- Włączane, gdy `HEALTH_ENABLED !== 'false'` (ścieżka: `HEALTH_PATH`, domyślnie `/healthz`).
-- `GET` zwraca JSON `{ status, checks }` — HTTP **200** przy `status: "ok"`, **503** przy `"degraded"`.
-- `buildHealthPayload()` przechodzi włączone wpisy z `modules.config`, dynamicznie ładuje moduł i — jeśli eksportuje opcjonalne `checkHealth` — zbiera wyniki typu `HealthCheck` (`id`, `ok`, `detail?` z [`src/core/types.ts`](./src/core/types.ts)).
-- Status globalny: `"ok"`, gdy wszystkie checki mają `ok: true`; inaczej `"degraded"`. Wyjątek w checkerze staje się checkiem z `ok: false`.
-- **Portfolio** eksportuje `checkHealth`: weryfikuje, że `contentRoot` jest ustawiony i czytelny (`portfolio_content_root`).
-
-### Metryki Prometheus (`metrics.ts` + `instrumentTool.ts`)
-
-- Biblioteka: [`prom-client`](https://github.com/siimon/prom-client). Włączane, gdy `METRICS_ENABLED !== 'false'` (ścieżka: `METRICS_PATH`, domyślnie `/metrics`).
-- Przy starcie HTTP: `initMetrics()` — domyślne metryki procesu z prefixem `mcp_` oraz gauge `mcp_build_info{version="1.0.0"}`.
-- Endpoint ekspozycji: `Content-Type` z `prom-client`, body z `register.metrics()`.
-
-| Metryka | Typ | Etykiety / sens |
-|---------|-----|-----------------|
-| `mcp_http_requests_total` | Counter | `method`, `status_class` (`1xx`…`5xx`), `module` |
-| `mcp_auth_failures_total` | Counter | `reason`: `missing_token` \| `invalid_token` |
-| `mcp_protocol_errors_total` | Counter | `module`, `code` (np. `missing_module`, `unknown_module`, `session_mismatch`, `invalid_session`, …) |
-| `mcp_sessions_active` | Gauge | `module` — aktywne sesje |
-| `mcp_sessions_opened_total` / `mcp_sessions_closed_total` | Counter | `module` |
-| `mcp_tool_invocations_total` | Counter | `module`, `tool`, `result` (`ok` \| `error`) |
-| `mcp_tool_duration_seconds` | Histogram | `module`, `tool` — czas handlera |
-
-Transport HTTP zapisuje m.in. requesty (po `res.finish`), błędy auth/protokołu oraz lifecycle sesji. Narzędzia portfolio rejestrują się przez **`registerInstrumentedTool`**: owija handler, mierzy czas (`hrtime`) i woła `observeTool` (sukces / `isError` / wyjątek).
-
-### Request ID
-
-Każde żądanie HTTP dostaje `requestId` z nagłówka `x-request-id` (jeśli niepusty) albo świeże `randomUUID()` — pole na obiekcie requestu w Express.
-
-## Uruchomienie
-
-### Rozwój (watch)
-
-```bash
-npm run dev
-```
-
-### Produkcja
-
-```bash
-npm run build
-npm start
-```
-
-`build` uruchamia `tsc` oraz `scripts/copy-portfolio-content.mjs`, żeby przy `npm start` (`node dist/src/index.js`) katalog `content` modułu portfolio był dostępny obok skompilowanych plików (domyślny `PORTFOLIO_CONTENT_ROOT` względem `lib` w `dist`).
-
-## Transport stdio (aktywacja alternatywy do HTTP)
-
-Alternatywny transport MCP znajduje się w [`src/transports/stdio.ts`](./src/transports/stdio.ts): funkcja **`startStdioTransport(server)`** podłącza jedną instancję `McpServer` do **`StdioServerTransport`** (komunikacja JSON-RPC MCP wyłącznie przez **stdin / stdout**). Nadaje się do klientów, które **spawnują** proces Node i nie otwierają portu HTTP (typowo **Cursor** z konfiguracją `command` + `args`).
-
-**Jak włączyć stdio** (ręczna zmiana w [`src/index.ts`](./src/index.ts), potem `npm run build`):
-
-1. **Import:** odkomentuj `import { startStdioTransport } from './transports/stdio.js';` i zakomentuj (lub usuń) import `startHttpTransport`, jeśli nie jest już potrzebny.
-2. **Funkcja `main()`:** usuń lub zakomentuj cały obecny blok: **sonda startowa** (`probe` z `createServerWithModules` + `probe.close()`), a także **`startHttpTransport(...)`**. Sonda zamyka pierwszą instancję serwera — przed stdio **nie** powinna zostawiać zamkniętego serwera jako jedynej ścieżki.
-3. **Zastąp** logiką w stylu poniżej — **jedna** instancja serwera na proces, bez nasłuchu TCP:
-
-```typescript
-const { server, loadedModules } = await createServerWithModules();
-console.error(`[Server] Loaded ${loadedModules.length} modules: ${loadedModules.join(', ')}`);
-await startStdioTransport(server);
-```
-
-4. W repozytorium w komentarzu jest skrócona wersja tej samej idei (linia przy `// Stdio (jeden proces, jedna sesja):`); możesz ją wkleić zamiast ręcznego składania bloku — byle **nie** mieszać jednocześnie z `startHttpTransport` w tym samym `main()`.
-
-**Zmienne `MCP_HOST` / `MCP_PORT` / `MCP_INTERNAL_TOKEN`** nie dotyczą trybu stdio (brak serwera HTTP). Po przełączeniu z powrotem na HTTP przywróć import i wywołanie `startHttpTransport` oraz (opcjonalnie) sondę diagnostyczną, jeśli z niej korzystasz.
-
-## Integracja z Cursor IDE
-
-**Uwaga:** domyślny `src/index.ts` uruchamia **serwer HTTP**, a nie MCP po **stdio**. Konfiguracja Cursor z polami `command` + `args` zakłada zwykle **stdio**. Żeby ta ścieżka działała, najpierw **aktywuj stdio** według sekcji [Transport stdio (aktywacja alternatywy do HTTP)](#transport-stdio-aktywacja-alternatywy-do-http) (albo wydziel osobny plik startowy tylko pod stdio, żeby nie przełączać `index.ts` przy każdej zmianie środowiska).
-
-Gdy masz już tryb **stdio** w procesie uruchamianym przez Cursor:
-
-1. Zbuduj projekt: `npm run build`
-2. W konfiguracji MCP ustaw serwer uruchamiany przez Node ze ścieżką do **skompilowanego** entry point (ten sam plik co dziś, ale po przełączeniu na stdio w kodzie):
+`GET /healthz` zwraca:
 
 ```json
 {
-  "mcpServers": {
-    "unified_agent_context_mcp": {
-      "command": "node",
-      "args": [
-        "C:\\Users\\matej\\Desktop\\projekt JS\\custom_mcp_server\\dist\\src\\index.js"
-      ],
-      "env": {
-        "ENABLE_MODULE_PORTFOLIO": "true",
-        "ENABLE_MODULE_TEST_TOOLS": "true",
-        "PORTFOLIO_NAMESPACE": "portfolio",
-        "PORTFOLIO_CONTENT_ROOT": "C:\\Users\\matej\\Desktop\\projekt JS\\custom_mcp_server\\dist\\src\\modules\\portfolio\\content"
-      }
-    }
-  }
+  "status": "ok",
+  "checks": []
 }
 ```
 
-Klucz `unified_agent_context_mcp` w JSON jest **dowolny** (to etykieta w Cursorze); możesz trzymać np. `mateo2314_mcp_server`, jeśli masz już starą konfigurację.
+Status globalny:
 
-Dostosuj ścieżki do swojego dysku. Dla samego portfolio możesz wskazać `src\\...\\content` przy `tsx`/dev; przy `npm start` wygodniej jest katalog w `dist` po skrypcie kopiującym.
+- `ok` - wszystkie checki włączonych modułów są poprawne.
+- `degraded` - co najmniej jeden check zwrócił błąd.
 
-3. Zrestartuj Cursor i sprawdź panel MCP.
+Aktualne checki:
 
-**HTTP (VPS / agenci zdalni):** po `npm start` endpoint MCP jest pod ścieżką **`/mcp`** (Streamable HTTP). Ustaw `MCP_INTERNAL_TOKEN` w środowisku (np. `.env` / `docker-compose`) i dołącz do każdego żądania nagłówek `Authorization: Bearer …` z tą wartością. W repozytorium jest przykład portów i `MCP_HOST=0.0.0.0` w [`docker-compose.yml`](./docker-compose.yml).
+| Moduł | Check | Znaczenie |
+| --- | --- | --- |
+| `portfolio` | `portfolio_content_root` | Czy katalog contentu istnieje i jest czytelny. |
+| `trilium` | `trilium_etapi` | Czy konfiguracja ETAPI działa i Trilium odpowiada. |
 
-## Testowanie w Cursor
+### Metryki Prometheus
 
+`GET /metrics` zwraca metryki z `prom-client`.
+
+| Metryka | Typ | Etykiety |
+| --- | --- | --- |
+| `mcp_http_requests_total` | Counter | `method`, `status_class`, `module` |
+| `mcp_auth_failures_total` | Counter | `reason` |
+| `mcp_protocol_errors_total` | Counter | `module`, `code` |
+| `mcp_sessions_active` | Gauge | `module` |
+| `mcp_sessions_opened_total` | Counter | `module` |
+| `mcp_sessions_closed_total` | Counter | `module` |
+| `mcp_tool_invocations_total` | Counter | `module`, `tool`, `result` |
+| `mcp_tool_duration_seconds` | Histogram | `module`, `tool` |
+
+Każde żądanie HTTP dostaje `requestId` z nagłówka `x-request-id` albo z `randomUUID()`.
+
+## Docker
+
+Projekt zawiera `Dockerfile` i `docker-compose.yml`.
+
+```bash
+docker compose up --build
 ```
-Jakie narzędzia MCP są dostępne?
+
+W `docker-compose.yml` kontener wystawia port `8090`, dlatego w `.env` dla tego wariantu ustaw:
+
+```bash
+MCP_HOST=0.0.0.0
+MCP_PORT=8090
+MCP_INTERNAL_TOKEN=production-token
 ```
 
-```
-Użyj portfolio_get_profile i pokaż wynik
+Przykładowy endpoint po starcie:
+
+```text
+http://127.0.0.1:8090/mcp/portfolio
 ```
 
+## Integracja z klientami MCP
+
+### HTTP
+
+Dla klientów obsługujących Streamable HTTP użyj adresu modułu:
+
+```text
+http://<host>:<port>/mcp/<moduleId>
 ```
-Wyszukaj "TypeScript" przez portfolio_search
+
+Do żądań MCP dodaj nagłówek:
+
+```text
+Authorization: Bearer <MCP_INTERNAL_TOKEN>
+```
+
+### Cursor i stdio
+
+Domyślny entry point uruchamia HTTP, nie stdio. Jeśli klient wymaga konfiguracji `command` + `args`, przygotuj wariant stdio, który wywołuje `startStdioTransport(server)`.
+
+Po zbudowaniu projektu typowa ścieżka entry pointu to:
+
+```text
+dist/src/index.js
 ```
 
 ## Treść portfolio
 
-Pliki w `src/modules/portfolio/content/` (po buildzie także pod `dist/.../content/`). Struktura zależy od Twojego korpusu; obowiązuje m.in. `manifest.json` zgodny z narzędziem `get_manifest`.
+Pliki portfolio znajdują się w:
 
-Przykład front matter w `.md`:
+```text
+src/modules/portfolio/content/
+```
+
+Po buildzie content jest kopiowany do:
+
+```text
+dist/src/modules/portfolio/content/
+```
+
+Przykładowy front matter:
 
 ```markdown
 ---
@@ -229,53 +398,19 @@ project_category: Web Development
 tech_stack: Next.js, TypeScript
 ---
 
-Opis...
+Opis projektu...
 ```
-
-## Migracja / rozszerzenia
-
-### Baza zamiast plików
-
-Zachowaj nazwy narzędzi i kontrakty; podmień implementację w warstwie lib (np. `corpus.ts`) na odczyt z DB. Zmienne typu `PORTFOLIO_DB_URL` są przygotowane w `.env.example` jako szkic.
-
-### Transport HTTP
-
-Zaimplementowany w [`src/transports/http.ts`](./src/transports/http.ts) (Streamable HTTP, sesje, **wymagany** Bearer `MCP_INTERNAL_TOKEN`). Szerszy opis planu / decyzji mógł być w `MCP.md` — plik może być wyłączony z gita (patrz `.gitignore`); stan faktyczny zawsze w kodzie `index.ts` + `http.ts`.
-
-### Transport stdio
-
-Implementacja: [`src/transports/stdio.ts`](./src/transports/stdio.ts). Aktywacja w entry point: [Transport stdio (aktywacja alternatywy do HTTP)](#transport-stdio-aktywacja-alternatywy-do-http).
 
 ## Dodawanie modułu
 
-1. Katalog `src/modules/<nazwa>/` z `index.ts` i `export async function register(server, options)`.
-2. Wpis w `config/modules.config.ts` (nazwa = segment ścieżki importu `../modules/${name}/index.js`).
-3. Zmienne `ENABLE_MODULE_<NAZWA>` / namespace w `.env` według konwencji projektu.
+1. Utwórz katalog `src/modules/<nazwa>/`.
+2. Dodaj `index.ts` z eksportem `register(server, options)`.
+3. Opcjonalnie dodaj `checkHealth(config)`.
+4. Dodaj wpis do `config/modules.config.ts`.
+5. Ustal `ENABLE_MODULE_<NAZWA>` i namespace w `.env.example`.
+6. Rejestruj narzędzia z nazwą opartą o namespace, np. `${namespace}_my_tool`.
 
-## Dokumentacja
-
-- [MCP_MVP.md](./MCP_MVP.md) — plan MVP
-- [MCP.md](./MCP.md) — architektura globalnego serwera i transporty
-- [Model Context Protocol](https://modelcontextprotocol.io/docs/getting-started/intro)
-
-## Troubleshooting
-
-### Brak połączenia z klientem MCP
-
-- Logi: Output → MCP
-- Ścieżki w Windows: poprawne escapowanie `\\` w JSON
-- Czy istnieje `dist/src/index.js` po `npm run build`
-- **Cursor + `command`/`args`:** czy proces naprawdę używa **stdio**? Domyślny `index.js` startuje **HTTP** — wtedy Cursor nie „zobaczy” MCP po stdin/stdout; przełącz transport w kodzie albo osobny entry pod stdio
-
-### Brak narzędzi / pusty moduł
-
-- W logach powinna być linia w stylu: `Loaded N modules: portfolio, test-tools`
-- `ENABLE_MODULE_PORTFOLIO=false` wyłącza portfolio; to samo dla `test-tools`
-- Portfolio: czy `content` istnieje (src lub dist + skrypt kopiujący)
-
-### Path traversal detected
-
-Zamierzone dla ścieżek wychodzących poza `PORTFOLIO_CONTENT_ROOT`. Sprawdź `PORTFOLIO_CONTENT_ROOT` i argumenty narzędzi.
+HTTP używa `name` z konfiguracji jako `moduleId` w ścieżce `/mcp/<moduleId>`. Namespace służy do nazw narzędzi i może być inny niż `moduleId`.
 
 ## Licencja
 
